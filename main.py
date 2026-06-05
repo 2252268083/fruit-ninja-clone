@@ -147,7 +147,7 @@ def main():
             
             # 结算界面跳转
             if game_running:
-                action = end_game_menu_visual(cap, frame)
+                action = end_game_menu_visual(cap, game)
                 if action == 'menu':
                     break
                 elif action == 'quit':

@@ -20,6 +20,7 @@
 pip install -r requirements.txt
 ```
 
+
 ## 运行游戏
 ```bash
 python main.py

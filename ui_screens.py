@@ -3,6 +3,8 @@ import config
 import math_utils
 import vision_engine
 
+import time
+
 def _draw_hover_bar(frame, area, progress):
     """绘制悬停确认的绿色进度条"""
     x, y, w, h = area['x'], area['y'], area['w'], area['h']
@@ -183,15 +185,18 @@ def blade_selection_screen(cap) -> str:
         elif kp == ord('2'): return 'dao2'
 
 
-def end_game_menu_visual(cap, last_frame) -> str:
-    """完整的游戏结算界面"""
+def end_game_menu_visual(cap, game) -> str:
+    """完整的游戏结算界面，包含延迟和分数显示"""
     areas = {
-        'restart': {'x': 300, 'y': 350, 'w': 300, 'h': 200},
-        'menu':    {'x': 680, 'y': 350, 'w': 300, 'h': 200}
+        'restart': {'x': 300, 'y': 380, 'w': 300, 'h': 200},
+        'menu':    {'x': 680, 'y': 380, 'w': 300, 'h': 200}
     }
     hover_timer = {'restart': 0, 'menu': 0}
     threshold = 30
     smoother = math_utils.FingerSmoother(method='ewma', alpha=0.4, adaptive=True)
+    
+    start_time = time.time()
+    delay_seconds = 2.0  # 延迟 2 秒后才显示交互按钮
     
     while True:
         ret, frame = cap.read()
@@ -204,39 +209,58 @@ def end_game_menu_visual(cap, last_frame) -> str:
         cv2.rectangle(overlay, (0, 0), (config.WINDOW_WIDTH, config.WINDOW_HEIGHT), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
         
-        config.add_cn_text('游戏结束', (config.WINDOW_WIDTH//2 - 120, 150), 80, (255, 255, 255))
+        config.add_cn_text('游戏结束', (config.WINDOW_WIDTH//2 - 120, 80), 80, (255, 255, 255))
         
-        for key, area in areas.items():
-            x, y, w, h = area['x'], area['y'], area['w'], area['h']
-            progress = hover_timer[key] / threshold
-            color = (0, 255, 0) if progress > 0 else (100, 100, 100)
-            cv2.rectangle(frame, (x, y), (x + w, y + h), color, 3)
-            
-            label = '重新开始' if key == 'restart' else '主菜单'
-            config.add_cn_text(label, (x + 50, y + 110), 40, (255, 255, 255))
-            if progress > 0:
-                _draw_hover_bar(frame, area, progress)
-
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        lm_list, _ = vision_engine.detect_hands(rgb)
-        
-        if lm_list:
-            tip = lm_list[0][8]
-            sx, sy = smoother.smooth(int(tip.x * config.WINDOW_WIDTH), int(tip.y * config.WINDOW_HEIGHT))
-            cv2.circle(frame, (sx, sy), 15, (0, 255, 255), -1)
-            
-            for key, area in areas.items():
-                if area['x'] <= sx <= area['x'] + area['w'] and area['y'] <= sy <= area['y'] + area['h']:
-                    hover_timer[key] += 1
-                    if hover_timer[key] >= threshold: 
-                        config.flush_cn_texts(frame)
-                        return key
-                else:
-                    hover_timer[key] = max(0, hover_timer[key] - 2)
+        # 显示得分与结果
+        if game.mode == 'pk':
+            if game.winner == 'p1':
+                config.add_cn_text('🏆 玩家一获胜！', (config.WINDOW_WIDTH//2 - 170, 200), 50, (255, 200, 0))
+            elif game.winner == 'p2':
+                config.add_cn_text('🏆 玩家二获胜！', (config.WINDOW_WIDTH//2 - 170, 200), 50, (100, 200, 255))
+            else:
+                config.add_cn_text('🤝 双方平局！', (config.WINDOW_WIDTH//2 - 150, 200), 50, (240, 240, 240))
+            config.add_cn_text(f'玩家一: {game.p1.score}分   玩家二: {game.p2.score}分', (config.WINDOW_WIDTH//2 - 230, 280), 30, (200, 200, 200))
         else:
-            smoother.reset()
-            for k in hover_timer:
-                hover_timer[k] = max(0, hover_timer[k] - 2)
+            config.add_cn_text(f'本次得分: {game.score}', (config.WINDOW_WIDTH//2 - 150, 180), 50, (0, 255, 255))
+            if game.game_over_reason:
+                config.add_cn_text(game.game_over_reason, (config.WINDOW_WIDTH//2 - 160, 260), 30, (255, 100, 100))
+
+        # 延迟逻辑
+        if time.time() - start_time > delay_seconds:
+            for key, area in areas.items():
+                x, y, w, h = area['x'], area['y'], area['w'], area['h']
+                progress = hover_timer[key] / threshold
+                color = (0, 255, 0) if progress > 0 else (100, 100, 100)
+                cv2.rectangle(frame, (x, y), (x + w, y + h), color, 3)
+                
+                label = '重新开始' if key == 'restart' else '主菜单'
+                config.add_cn_text(label, (x + 50, y + 110), 40, (255, 255, 255))
+                if progress > 0:
+                    _draw_hover_bar(frame, area, progress)
+
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            lm_list, _ = vision_engine.detect_hands(rgb)
+            
+            if lm_list:
+                tip = lm_list[0][8]
+                sx, sy = smoother.smooth(int(tip.x * config.WINDOW_WIDTH), int(tip.y * config.WINDOW_HEIGHT))
+                cv2.circle(frame, (sx, sy), 15, (0, 255, 255), -1)
+                
+                for key, area in areas.items():
+                    if area['x'] <= sx <= area['x'] + area['w'] and area['y'] <= sy <= area['y'] + area['h']:
+                        hover_timer[key] += 1
+                        if hover_timer[key] >= threshold: 
+                            config.flush_cn_texts(frame)
+                            return key
+                    else:
+                        hover_timer[key] = max(0, hover_timer[key] - 2)
+            else:
+                smoother.reset()
+                for k in hover_timer:
+                    hover_timer[k] = max(0, hover_timer[k] - 2)
+        else:
+            remain = int(delay_seconds - (time.time() - start_time)) + 1
+            config.add_cn_text(f'即将显示选项... {remain}', (config.WINDOW_WIDTH//2 - 130, 450), 30, (150, 150, 150))
         
         config.flush_cn_texts(frame)
         cv2.imshow('Swift-Fruit-Slice', frame)
