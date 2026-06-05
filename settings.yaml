@@ -1,0 +1,21 @@
+# 这是游戏的全局配置文件，你可以随时修改以下参数以改变游戏行为
+
+camera:
+  index: 0       # 摄像头编号，0代表默认摄像头，外接摄像头可以改为1"http://192.168.3.135:8081"
+  width: 1280       # 摄像头捕获画面宽度
+  height: 720       # 摄像头捕获画面高度
+
+game:
+  window_width: 1280    # 游戏渲染窗口宽度
+  window_height: 720    # 游戏渲染窗口高度
+  spawn_interval: 20    # 水果生成的间隔时间（帧数），数值越小，水果弹出越快越密集
+  max_on_screen: 12     # 屏幕上允许同时存在的最大水果/炸弹数量
+
+ai:
+  max_hands: 6          # AI 最多同时识别的手部数量（影响性能和刀光数量）
+
+paths:
+  assets_dir: "assets"                  # 游戏素材（图片、音效）的根目录
+  models_dir: "models"                  # AI 手势识别模型所在的根目录
+  model_name: "hand_landmarker.task"    # AI 模型的文件名称
+  bgm_name: "1.mp3"                     # 游戏背景音乐的文件名称

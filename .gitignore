@@ -1,0 +1,13 @@
+# 忽略整个文件夹（不上传到 GitHub）
+venv/
+env/
+__pycache__/
+.idea/
+venv_build/
+.vscode/
+build/
+dist/
+*.egg-info/
+
+# 游戏资源/缓存文件夹
+备份/
