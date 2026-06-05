@@ -5,11 +5,13 @@ import time
 from collections import deque
 import config
 
-class Player:
+class my_wanjia:
+    # 玩家类，存分数的
     def __init__(self):
         self.score = 0
 
-class Fruit:
+class my_shuiguo:
+    # 简单的单个水果
     def __init__(self):
         self.x = random.randint(100, config.WINDOW_WIDTH - 100)
         self.y = config.WINDOW_HEIGHT + 50
@@ -20,6 +22,8 @@ class Fruit:
             self.radius = max(w, h) // 2
         else:
             self.radius = 50
+            
+        # 给个随机的抛物线初速度
         self.vx = random.uniform(-2, 2)
         self.vy = random.uniform(-19, -15)
         self.gravity = 0.32
@@ -35,9 +39,11 @@ class Fruit:
             self.x += self.vx
             self.y += self.vy
             self.rot += self.rot_spd
+            # 判断有没有进屏幕，没进的话就不算漏掉
             if not self.entered and 0 <= self.y <= config.WINDOW_HEIGHT - 50:
                 self.entered = True
         else:
+            # 切开了，两半分别掉下去
             for p in self.cut_pieces:
                 p['vy'] += self.gravity * 2.0
                 p['x'] += p['vx']
@@ -50,17 +56,18 @@ class Fruit:
             if self.images and self.images['whole'] is not None:
                 config.overlay_image(frame, self.images['whole'], int(self.x), int(self.y), self.rot)
             else:
+                # 没图片就画个圆圈代替一下
                 cv2.circle(frame, (int(self.x), int(self.y)), 40, (0, 255, 255), -1)
         else:
             for p in self.cut_pieces:
                 if p['alpha'] > 0:
-                    config.overlay_image(frame, p['image'], int(p['x']), int(p['y']),
-                                         p['rot'], p['alpha'] / 255.0)
+                    config.overlay_image(frame, p['image'], int(p['x']), int(p['y']), p['rot'], p['alpha'] / 255.0)
 
     def cut(self, _=0):
         self.is_cut = True
-        if not self.images:
-            return
+        if not self.images: return
+        
+        # 分成左右两半，随便给点弹开的速度
         for img, dx in [(self.images['left'], -1), (self.images['right'], 1)]:
             if img is not None:
                 self.cut_pieces.append({
@@ -72,21 +79,24 @@ class Fruit:
                     'alpha': 255
                 })
 
-    def out(self):
+    def is_out(self):
+        # 看看是不是掉出屏幕下面了
         if not self.is_cut:
             return self.y > config.WINDOW_HEIGHT + 150
         return all(p['alpha'] <= 0 or p['y'] > config.WINDOW_HEIGHT + 150 for p in self.cut_pieces)
 
-    def check_collision(self, trail):
-        if self.is_cut or len(trail) < 2:
-            return False
+    def check_hit(self, trail):
+        if self.is_cut or len(trail) < 2: return False
+        
+        # TODO: 以后试试算线段和圆的交点，现在只算点到圆心的距离，偶尔会漏切
         for pt in list(trail)[-15:]:
             if pt and math.hypot(pt[0] - self.x, pt[1] - self.y) < self.radius * 0.85:
                 return True
         return False
 
-
-class MultiFruit:
+# (多切块水果和炸弹逻辑差不多，照着上面改一下名字)
+class my_duo_shuiguo:
+    # 比如西瓜这种能切好几块的
     def __init__(self):
         self.x = random.randint(100, config.WINDOW_WIDTH - 100)
         self.y = config.WINDOW_HEIGHT + 50
@@ -131,13 +141,12 @@ class MultiFruit:
         else:
             for p in self.cut_pieces:
                 if p['alpha'] > 0:
-                    config.overlay_image(frame, p['image'], int(p['x']), int(p['y']),
-                                         p['rot'], p['alpha'] / 255.0)
+                    config.overlay_image(frame, p['image'], int(p['x']), int(p['y']), p['rot'], p['alpha'] / 255.0)
 
     def cut(self, angle=0):
         self.is_cut = True
-        if not self.images or 'pieces' not in self.images:
-            return
+        if not self.images or 'pieces' not in self.images: return
+        
         cnt = self.images['piece_count']
         step = 360 / cnt
         for i, img in enumerate(self.images['pieces']):
@@ -152,21 +161,19 @@ class MultiFruit:
                 'alpha': 255
             })
 
-    def out(self):
-        if not self.is_cut:
-            return self.y > config.WINDOW_HEIGHT + 150
+    def is_out(self):
+        if not self.is_cut: return self.y > config.WINDOW_HEIGHT + 150
         return all(p['alpha'] <= 0 or p['y'] > config.WINDOW_HEIGHT + 150 for p in self.cut_pieces)
 
-    def check_collision(self, trail):
-        if self.is_cut or len(trail) < 2:
-            return False
+    def check_hit(self, trail):
+        if self.is_cut or len(trail) < 2: return False
         for pt in list(trail)[-15:]:
-            if pt and math.hypot(pt[0] - self.x, pt[1] - self.y) < self.radius * 0.85:
-                return True
+            if pt and math.hypot(pt[0] - self.x, pt[1] - self.y) < self.radius * 0.85: return True
         return False
 
 
-class Bomb:
+class my_zhadan:
+    # 炸弹，切到了扣分或者直接死
     def __init__(self, bomb_type='normal'):
         self.x = random.randint(100, config.WINDOW_WIDTH - 100)
         self.y = config.WINDOW_HEIGHT + 50
@@ -216,21 +223,18 @@ class Bomb:
         self.is_exploded = True
         self.exp_frame = 0
 
-    def out(self):
-        if not self.is_exploded:
-            return self.y > config.WINDOW_HEIGHT + 150
+    def is_out(self):
+        if not self.is_exploded: return self.y > config.WINDOW_HEIGHT + 150
         return self.exp_frame >= self.exp_max
 
-    def check_collision(self, trail):
-        if self.is_exploded or len(trail) < 2:
-            return False
+    def check_hit(self, trail):
+        if self.is_exploded or len(trail) < 2: return False
         for pt in list(trail)[-15:]:
-            if pt and math.hypot(pt[0] - self.x, pt[1] - self.y) < self.radius * 0.85:
-                return True
+            if pt and math.hypot(pt[0] - self.x, pt[1] - self.y) < self.radius * 0.85: return True
         return False
 
 
-class ComboEffect:
+class Effect_Lianji:
     def __init__(self, combo):
         self.x = config.WINDOW_WIDTH // 2
         self.y = config.WINDOW_HEIGHT // 2 - 100
@@ -256,15 +260,13 @@ class ComboEffect:
     def done(self): return self.frame >= self.dur
 
     def draw(self, frame):
-        if not self.key or self.key not in config.COMBO_IMAGES:
-            return
+        if not self.key or self.key not in config.COMBO_IMAGES: return
         img = config.COMBO_IMAGES[self.key]
         h, w = img.shape[:2]
         sc = cv2.resize(img, (int(w * self.scale), int(h * self.scale)))
         config.overlay_image(frame, sc, int(self.x), int(self.y), 0, self.alpha / 255.0)
 
-
-class SlashEffect:
+class Effect_Daoguang:
     def __init__(self, x, y, angle):
         self.x = x; self.y = y; self.angle = angle
         self.alpha = 255; self.scale = 1.0
@@ -283,8 +285,7 @@ class SlashEffect:
         sc = cv2.resize(blade_img, (int(w * self.scale), int(h * self.scale)))
         config.overlay_image(frame, sc, int(self.x), int(self.y), self.angle, self.alpha / 255.0)
 
-
-class JuiceEffect:
+class Effect_Guozhi:
     def __init__(self, x, y, juice_img):
         self.x = x; self.y = y; self.img = juice_img
         self.alpha = 255; self.scale = 1.0
@@ -309,13 +310,16 @@ class JuiceEffect:
 
 
 class Game:
+    # 游戏主控制类
     def __init__(self, selected_blade='dao1', mode='single'):
         self.fruits = []
         self.multi_fruits = []
         self.bombs = []
+        
         self.slash_fx = []
         self.combo_fx = []
         self.juice_fx = []
+        
         self.selected_blade = selected_blade
         self.mode = mode
         
@@ -324,61 +328,63 @@ class Game:
         self.bombs_hit = 0
         self.combo = 0
         self.max_combo = 0
+        
         self.spawn_timer = 0
-        # 减小生成间隔，加快水果生成速度
         self.spawn_interval = config.SETTINGS["game"].get("spawn_interval", 12)
+        
         self.game_over = False
         self.game_over_reason = ""
         self.max_missed = 10
         self.max_bombs_hit = 3
-        # 增加同屏最大水果数量
+        
         self.max_on_screen = config.SETTINGS["game"].get("max_on_screen", 15)
         self.bomb_chance = 0.22
         self.deadly_chance = 0.25
         self.multi_chance = 0.15
+        
         self.consec_bombs = 0
         self.max_consec_bombs = 2
         
-        self.p1 = Player()
-        self.p2 = Player()
+        self.p1 = my_wanjia()
+        self.p2 = my_wanjia()
         self.start_time = time.time()
-        self.total_time = 30.0
+        self.total_time = 30.0 # PK模式默认30秒
         self.winner = ''
         
-        self.spawn_single()
+        self.suiji_shengcheng()
 
-    def time_left(self) -> float:
+    def get_time_left(self) -> float:
         return max(0.0, self.total_time - (time.time() - self.start_time))
 
-    def spawn_single(self):
+    def suiji_shengcheng(self):
+        # 随机扔个东西出来，不要连续扔太多炸弹
         if self.consec_bombs >= self.max_consec_bombs:
-            self._spawn_fruit()
+            self._shengcheng_shuiguo()
             self.consec_bombs = 0
             return
             
         r = random.random()
         if r < self.bomb_chance:
             bt = 'deadly' if random.random() < self.deadly_chance else 'normal'
-            self.bombs.append(Bomb(bt))
+            self.bombs.append(my_zhadan(bt))
             self.consec_bombs += 1
         elif r < self.bomb_chance + self.multi_chance:
-            self.multi_fruits.append(MultiFruit())
+            self.multi_fruits.append(my_duo_shuiguo())
             self.consec_bombs = 0
         else:
-            self.fruits.append(Fruit())
+            self.fruits.append(my_shuiguo())
             self.consec_bombs = 0
 
-    def _spawn_fruit(self):
+    def _shengcheng_shuiguo(self):
         if random.random() < 0.3:
-            self.multi_fruits.append(MultiFruit())
+            self.multi_fruits.append(my_duo_shuiguo())
         else:
-            self.fruits.append(Fruit())
+            self.fruits.append(my_shuiguo())
 
     def check_collisions(self, trail_list):
-        if self.game_over:
-            return
+        if self.game_over: return
 
-        if self.mode == 'pk' and self.time_left() <= 0:
+        if self.mode == 'pk' and self.get_time_left() <= 0:
             self.game_over = True
             if self.p1.score > self.p2.score:
                 self.winner = 'p1'
@@ -392,13 +398,13 @@ class Game:
         if self.spawn_timer >= self.spawn_interval:
             self.spawn_timer = 0
             if len(self.fruits) + len(self.multi_fruits) + len(self.bombs) < self.max_on_screen:
-                # 每次生成的水果数量从 1~2 个增加到 2~4 个
+                # 每次多丢几个，不然太无聊了
                 for _ in range(random.randint(2, 4)):
-                    self.spawn_single()
+                    self.suiji_shengcheng()
 
         for f in self.fruits:
             f.update()
-            if not f.is_cut and f.out() and f.entered:
+            if not f.is_cut and f.is_out() and f.entered:
                 if self.mode != 'pk':
                     self.missed += 1
                     self.combo = 0
@@ -408,7 +414,7 @@ class Game:
                         
         for mf in self.multi_fruits:
             mf.update()
-            if not mf.is_cut and mf.out() and mf.entered:
+            if not mf.is_cut and mf.is_out() and mf.entered:
                 if self.mode != 'pk':
                     self.missed += 1
                     self.combo = 0
@@ -416,13 +422,14 @@ class Game:
                         self.game_over = True
                         self.game_over_reason = "漏掉的水果太多啦！"
 
-        for b in self.bombs:
-            b.update()
+        for b in self.bombs: b.update()
 
-        self.fruits = [f for f in self.fruits if not f.out()]
-        self.multi_fruits = [mf for mf in self.multi_fruits if not mf.out()]
-        self.bombs = [b for b in self.bombs if not b.out()]
+        # 清理掉出屏幕的
+        self.fruits = [f for f in self.fruits if not f.is_out()]
+        self.multi_fruits = [mf for mf in self.multi_fruits if not mf.is_out()]
+        self.bombs = [b for b in self.bombs if not b.is_out()]
 
+        # 清理播完的特效
         for fx in self.slash_fx: fx.update()
         for fx in self.combo_fx: fx.update()
         for fx in self.juice_fx: fx.update()
@@ -430,53 +437,51 @@ class Game:
         self.combo_fx = [fx for fx in self.combo_fx if not fx.done()]
         self.juice_fx = [fx for fx in self.juice_fx if not fx.done()]
 
-    def _play(self, key):
+    def _bofang_yinxiao(self, key):
         if config.HAS_SOUND and key in config.SOUND_EFFECTS:
             config.SOUND_EFFECTS[key].play()
 
     def update(self, trail_list):
-        if self.game_over:
-            return
+        if self.game_over: return
             
         cut_something = False
         for idx, trail in enumerate(trail_list):
-            if len(trail) < 2:
-                continue
+            if len(trail) < 2: continue
                 
             for f in self.fruits:
-                if not f.is_cut and f.check_collision(trail):
+                if not f.is_cut and f.check_hit(trail):
                     f.cut()
                     cut_something = True
-                    self._play('slice')
+                    self._bofang_yinxiao('slice')
                     if self.mode == 'pk':
                         if idx == 0: self.p1.score += 1
                         else: self.p2.score += 1
                     else:
                         self.score += 1
                         self.combo += 1
-                    self.slash_fx.append(SlashEffect(f.x, f.y, random.uniform(0, 360)))
+                    self.slash_fx.append(Effect_Daoguang(f.x, f.y, random.uniform(0, 360)))
                     if config.JUICE_IMAGES.get('juice1') is not None:
-                        self.juice_fx.append(JuiceEffect(f.x, f.y, config.JUICE_IMAGES['juice1']))
+                        self.juice_fx.append(Effect_Guozhi(f.x, f.y, config.JUICE_IMAGES['juice1']))
 
             for mf in self.multi_fruits:
-                if not mf.is_cut and mf.check_collision(trail):
+                if not mf.is_cut and mf.check_hit(trail):
                     mf.cut()
                     cut_something = True
-                    self._play('slice')
+                    self._bofang_yinxiao('slice')
                     if self.mode == 'pk':
                         if idx == 0: self.p1.score += 2
                         else: self.p2.score += 2
                     else:
                         self.score += 2
                         self.combo += 1
-                    self.slash_fx.append(SlashEffect(mf.x, mf.y, random.uniform(0, 360)))
+                    self.slash_fx.append(Effect_Daoguang(mf.x, mf.y, random.uniform(0, 360)))
                     if config.JUICE_IMAGES.get('juice2') is not None:
-                        self.juice_fx.append(JuiceEffect(mf.x, mf.y, config.JUICE_IMAGES['juice2']))
+                        self.juice_fx.append(Effect_Guozhi(mf.x, mf.y, config.JUICE_IMAGES['juice2']))
 
             for b in self.bombs:
-                if not b.is_exploded and b.check_collision(trail):
+                if not b.is_exploded and b.check_hit(trail):
                     b.explode()
-                    self._play('explosion')
+                    self._bofang_yinxiao('explosion')
                     if self.mode == 'pk':
                         if idx == 0: self.p1.score = max(0, self.p1.score - 4)
                         else: self.p2.score = max(0, self.p2.score - 4)
@@ -492,9 +497,10 @@ class Game:
                                 self.game_over = True
                                 self.game_over_reason = "触碰炸弹次数过多！"
                                 
+        # TODO: 后续把神湾菠萝的爆汁动效改得更逼真一点
         if cut_something and self.mode != 'pk':
             if self.combo in [3, 7, 12] or (self.combo > 12 and self.combo % 5 == 0):
-                self.combo_fx.append(ComboEffect(self.combo))
+                self.combo_fx.append(Effect_Lianji(self.combo))
 
     def draw(self, frame):
         for f in self.fruits: f.draw(frame)
@@ -510,7 +516,7 @@ class Game:
         if self.mode == 'pk':
             config.add_cn_text(f"玩家一 得分: {self.p1.score}", (40, 20), font_size=32, color=(255, 150, 0))
             config.add_cn_text(f"玩家二 得分: {self.p2.score}", (config.WINDOW_WIDTH - 280, 20), font_size=32, color=(100, 200, 255))
-            config.add_cn_text(f"时间: {self.time_left():.1f}s", (half - 90, 20), font_size=30, color=(255, 255, 255), bg_color=(40, 40, 40))
+            config.add_cn_text(f"时间: {self.get_time_left():.1f}s", (half - 90, 20), font_size=30, color=(255, 255, 255), bg_color=(40, 40, 40))
 
             if not self.game_over:
                 if self.p1.score > self.p2.score:

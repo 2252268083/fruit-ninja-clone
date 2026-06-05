@@ -5,20 +5,19 @@ import random
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from logger import logger
+from logger import my_log
 
-# ============================================================
-#  加载配置文件 (支持热插拔)
-# ============================================================
-SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'settings.yaml')
+# 找配置文件
+my_setting_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'settings.yaml')
 
-def load_settings():
-    default_settings = {
+def duqu_peizhi():
+    # 默认给个配置，免得第一次跑报错
+    mo_ren = {
         "camera": {"index": 0, "width": 1280, "height": 720},
         "game": {
             "window_width": 1280, 
             "window_height": 720,
-            "spawn_interval": 12,
+            "spawn_interval": 12, # 水果生成速度，12差不多
             "max_on_screen": 15
         },
         "ai": {
@@ -31,36 +30,36 @@ def load_settings():
             "bgm_name": "1.mp3"
         }
     }
-    if not os.path.exists(SETTINGS_FILE):
+    if not os.path.exists(my_setting_file):
         try:
-            with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
-                yaml.dump(default_settings, f, default_flow_style=False, allow_unicode=True)
-            logger.info(f"已创建默认配置文件: {SETTINGS_FILE}")
+            with open(my_setting_file, 'w', encoding='utf-8') as f:
+                yaml.dump(mo_ren, f, default_flow_style=False, allow_unicode=True)
+            my_log.info(f"没找到配置，自动建了一个: {my_setting_file}")
         except Exception as e:
-            logger.error(f"创建配置文件失败: {e}")
-        return default_settings
+            my_log.error(f"创建配置文件失败了: {e}")
+        return mo_ren
 
     try:
-        with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
-            user_settings = yaml.safe_load(f)
-            # 简单合并默认值，防止缺失字段
-            if user_settings is None:
-                user_settings = {}
-            for k, v in default_settings.items():
-                if k not in user_settings:
-                    user_settings[k] = v
+        with open(my_setting_file, 'r', encoding='utf-8') as f:
+            user_peizhi = yaml.safe_load(f)
+            # 简单合并一下，怕有些字段被删了
+            if user_peizhi is None:
+                user_peizhi = {}
+            for k, v in mo_ren.items():
+                if k not in user_peizhi:
+                    user_peizhi[k] = v
                 elif isinstance(v, dict):
-                    if not isinstance(user_settings[k], dict):
-                        user_settings[k] = {}
+                    if not isinstance(user_peizhi[k], dict):
+                        user_peizhi[k] = {}
                     for sub_k, sub_v in v.items():
-                        if sub_k not in user_settings[k]:
-                            user_settings[k][sub_k] = sub_v
-            return user_settings
+                        if sub_k not in user_peizhi[k]:
+                            user_peizhi[k][sub_k] = sub_v
+            return user_peizhi
     except Exception as e:
-        logger.error(f"读取配置文件失败，使用默认配置: {e}")
-        return default_settings
+        my_log.error(f"读配置文件失败，只能用默认的了: {e}")
+        return mo_ren
 
-SETTINGS = load_settings()
+SETTINGS = duqu_peizhi()
 
 try:
     import pygame
@@ -68,202 +67,187 @@ try:
     HAS_SOUND = True
 except ImportError:
     HAS_SOUND = False
-    logger.warning("提示: 安装pygame可启用音效 (pip install pygame)")
+    # my_log.warning("没装pygame，没声音，记得 pip install pygame") # 嫌吵先注释了
 
-# ============================================================
-#  窗口逻辑尺寸 (统一渲染坐标系)
-# ============================================================
 WINDOW_WIDTH  = SETTINGS["game"]["window_width"]
 WINDOW_HEIGHT = SETTINGS["game"]["window_height"]
 
 # ============================================================
-#  中文字体系统（批量渲染，每帧只做一次 BGR↔RGB 转换）
+#  处理中文显示的（OpenCV直接写中文会乱码，只能转成PIL画）
 # ============================================================
-_font_cache: dict = {}
+_ziti_huancun = {}
 
-def get_cn_font(size: int) -> ImageFont.ImageFont:
-    if size in _font_cache:
-        return _font_cache[size]
-    candidates = [
+def get_ziti(size: int) -> ImageFont.ImageFont:
+    if size in _ziti_huancun:
+        return _ziti_huancun[size]
+    # 随便找几个系统自带的字体试试
+    ziti_paths = [
         "C:/Windows/Fonts/msyh.ttc",
         "C:/Windows/Fonts/msyhbd.ttc",
         "C:/Windows/Fonts/simhei.ttf",
         "C:/Windows/Fonts/simsun.ttc",
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-        "/System/Library/Fonts/PingFang.ttc",
-        "/Library/Fonts/Arial Unicode MS.ttf",
     ]
-    for path in candidates:
-        if os.path.exists(path):
+    for p in ziti_paths:
+        if os.path.exists(p):
             try:
-                font = ImageFont.truetype(path, size)
-                _font_cache[size] = font
+                font = ImageFont.truetype(p, size)
+                _ziti_huancun[size] = font
                 return font
-            except Exception:
+            except:
                 continue
     font = ImageFont.load_default()
-    _font_cache[size] = font
+    _ziti_huancun[size] = font
     return font
 
-_text_queue: list = []
+_wenzi_dui = []
 
 def add_cn_text(text: str, pos: tuple, font_size: int = 32,
                 color=(255, 255, 255), bg_color=None, padding: int = 8):
-    _text_queue.append((text, pos, font_size, color, bg_color, padding))
+    _wenzi_dui.append((text, pos, font_size, color, bg_color, padding))
 
 def flush_cn_texts(frame: np.ndarray):
-    global _text_queue
-    if not _text_queue:
-        return
+    global _wenzi_dui
+    if not _wenzi_dui: return
+    # 必须转RGB，不然颜色是反的
     pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(pil_img)
-    for text, (x, y), font_size, color, bg_color, padding in _text_queue:
-        font = get_cn_font(font_size)
-        if bg_color is not None:
+    
+    for text, (x, y), f_size, color, bg_c, pad in _wenzi_dui:
+        font = get_ziti(f_size)
+        if bg_c is not None:
             bbox = draw.textbbox((x, y), text, font=font)
             draw.rectangle(
-                [bbox[0] - padding, bbox[1] - padding,
-                 bbox[2] + padding, bbox[3] + padding],
-                fill=(bg_color[2], bg_color[1], bg_color[0])
+                [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad],
+                fill=(bg_c[2], bg_c[1], bg_c[0])
             )
-        draw.text((x, y), text, font=font,
-                  fill=(color[2], color[1], color[0]))
-    _text_queue = []
+        draw.text((x, y), text, font=font, fill=(color[2], color[1], color[0]))
+        
+    _wenzi_dui = []
     np.copyto(frame, cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR))
 
 # ============================================================
-#  素材加载
+#  加载图片和声音素材
 # ============================================================
-FRUIT_TYPES = [
-    'banana', 'boluo', 'iceBanana', 'Mango',
-    'mugua', 'peach', 'pear', 'pineapple', 'strawberry', 'b1'
-]
+FRUIT_TYPES = ['banana', 'boluo', 'iceBanana', 'Mango', 'mugua', 'peach', 'pear', 'pineapple', 'strawberry', 'b1']
 MULTI_FRUIT_TYPES = ['watermelon', 'dragonfruit']
 
-def load_fruit_images():
-    fruit_images = {}
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    assets_dir = os.path.join(script_dir, SETTINGS["paths"]["assets_dir"], 'sucai')
+def load_shuiguo_imgs():
+    imgs = {}
+    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'sucai')
     for name in FRUIT_TYPES:
-        whole_path = os.path.join(assets_dir, f'{name}.png')
+        w_path = os.path.join(base_dir, f'{name}.png')
         if name == 'b1':
-            left_path  = os.path.join(assets_dir, 'bl.png')
-            right_path = os.path.join(assets_dir, 'br.png')
+            l_path = os.path.join(base_dir, 'bl.png')
+            r_path = os.path.join(base_dir, 'br.png')
         else:
-            left_path  = os.path.join(assets_dir, f'{name}l.png')
-            right_path = os.path.join(assets_dir, f'{name}r.png')
-        if os.path.exists(whole_path):
-            wi = cv2.imread(whole_path, cv2.IMREAD_UNCHANGED)
-            li = cv2.imread(left_path,  cv2.IMREAD_UNCHANGED)
-            ri = cv2.imread(right_path, cv2.IMREAD_UNCHANGED)
-            fruit_images[name] = {'whole': wi, 'left': li, 'right': ri}
-    return fruit_images
+            l_path = os.path.join(base_dir, f'{name}l.png')
+            r_path = os.path.join(base_dir, f'{name}r.png')
+            
+        if os.path.exists(w_path):
+            wi = cv2.imread(w_path, cv2.IMREAD_UNCHANGED)
+            li = cv2.imread(l_path, cv2.IMREAD_UNCHANGED)
+            ri = cv2.imread(r_path, cv2.IMREAD_UNCHANGED)
+            imgs[name] = {'whole': wi, 'left': li, 'right': ri}
+    return imgs
 
-def load_multi_fruit_images():
-    images = {}
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    assets_dir = os.path.join(script_dir, SETTINGS["paths"]["assets_dir"], 'sucai')
-    sc = 0.5
+def load_duo_shuiguo_imgs():
+    # 西瓜和火龙果这种能切成好几块的
+    imgs = {}
+    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'sucai')
+    suofang = 0.5
     
     # 1. 西瓜
-    wp = os.path.join(assets_dir, 'watermelon.png')
+    wp = os.path.join(base_dir, 'watermelon.png')
     if os.path.exists(wp):
         wi = cv2.imread(wp, cv2.IMREAD_UNCHANGED)
         if wi is not None:
-            wi = cv2.resize(wi, None, fx=sc, fy=sc)
-            pieces = []
+            wi = cv2.resize(wi, None, fx=suofang, fy=suofang)
+            kuai = []
             for i in range(1, 9):
-                pp = os.path.join(assets_dir, f'watermelon{i}.png')
+                pp = os.path.join(base_dir, f'watermelon{i}.png')
                 if os.path.exists(pp):
                     pi = cv2.imread(pp, cv2.IMREAD_UNCHANGED)
                     if pi is not None:
-                        pieces.append(cv2.resize(pi, None, fx=sc, fy=sc))
-            if len(pieces) == 8:
-                images['watermelon'] = {'whole': wi, 'pieces': pieces, 'piece_count': 8}
+                        kuai.append(cv2.resize(pi, None, fx=suofang, fy=suofang))
+            if len(kuai) == 8:
+                imgs['watermelon'] = {'whole': wi, 'pieces': kuai, 'piece_count': 8}
                 
     # 2. 火龙果/全切块水果
-    dp = os.path.join(assets_dir, 'all.png')
+    dp = os.path.join(base_dir, 'all.png')
     if os.path.exists(dp):
         wi = cv2.imread(dp, cv2.IMREAD_UNCHANGED)
         if wi is not None:
-            wi = cv2.resize(wi, None, fx=sc, fy=sc)
-            pieces = []
+            wi = cv2.resize(wi, None, fx=suofang, fy=suofang)
+            kuai = []
             for i in range(1, 9):
-                pp = os.path.join(assets_dir, f'00{i}.png')
+                pp = os.path.join(base_dir, f'00{i}.png')
                 if os.path.exists(pp):
                     pi = cv2.imread(pp, cv2.IMREAD_UNCHANGED)
                     if pi is not None:
-                        pieces.append(cv2.resize(pi, None, fx=sc, fy=sc))
-            if len(pieces) == 8:
-                images['dragonfruit'] = {'whole': wi, 'pieces': pieces, 'piece_count': 8}
-    return images
+                        kuai.append(cv2.resize(pi, None, fx=suofang, fy=suofang))
+            if len(kuai) == 8:
+                imgs['dragonfruit'] = {'whole': wi, 'pieces': kuai, 'piece_count': 8}
+    return imgs
 
-def load_juice_images():
-    images = {}
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    assets_dir = os.path.join(script_dir, SETTINGS["paths"]["assets_dir"], 'texiao')
+def load_guozhi_imgs():
+    imgs = {}
+    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'texiao')
     for i in range(1, 5):
         name = f'guozhi{i}'
-        p = os.path.join(assets_dir, f'{name}.png')
+        p = os.path.join(base_dir, f'{name}.png')
         if os.path.exists(p):
             img = cv2.imread(p, cv2.IMREAD_UNCHANGED)
             if img is not None:
-                images[name] = img
-    return images
+                imgs[name] = img
+    return imgs
 
-def load_bomb_images():
-    images = {}
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    assets_dir = os.path.join(script_dir, SETTINGS["paths"]["assets_dir"], 'zhadan')
+def load_zhadan_imgs():
+    imgs = {}
+    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'zhadan')
     for key, fname, sc in [('bomb1', 'boom1.png', 1.0), ('bomb2', 'boom2.png', 1.0), ('explosion1', 'zha01.png', 2.0), ('explosion2', 'zha02.png', 2.0)]:
-        p = os.path.join(assets_dir, fname)
+        p = os.path.join(base_dir, fname)
         if os.path.exists(p):
             img = cv2.imread(p, cv2.IMREAD_UNCHANGED)
             if img is not None:
-                images[key] = cv2.resize(img, None, fx=sc, fy=sc) if sc != 1.0 else img
-    return images
+                imgs[key] = cv2.resize(img, None, fx=sc, fy=sc) if sc != 1.0 else img
+    return imgs
 
-def load_blade_images():
-    images = {}
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    assets_dir = os.path.join(script_dir, SETTINGS["paths"]["assets_dir"], 'daoguang')
+def load_daoguang_imgs():
+    imgs = {}
+    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'daoguang')
     for name in ['dao1', 'dao2']:
-        p = os.path.join(assets_dir, f'{name}.png')
+        p = os.path.join(base_dir, f'{name}.png')
         if os.path.exists(p):
             img = cv2.imread(p, cv2.IMREAD_UNCHANGED)
             if img is not None:
-                images[name] = img
-    return images
+                imgs[name] = img
+    return imgs
 
-def load_combo_images():
-    images = {}
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    assets_dir = os.path.join(script_dir, SETTINGS["paths"]["assets_dir"], 'texiao')
+def load_combo_imgs():
+    imgs = {}
+    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'texiao')
     for name in ['combo1', 'combo2', 'combo3']:
-        p = os.path.join(assets_dir, f'{name}.png')
+        p = os.path.join(base_dir, f'{name}.png')
         if os.path.exists(p):
             img = cv2.imread(p, cv2.IMREAD_UNCHANGED)
             if img is not None:
-                images[name] = img
-    return images
+                imgs[name] = img
+    return imgs
 
-def load_sound_effects():
+def load_yinxiao():
     sfx = {}
     if not HAS_SOUND: return sfx
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    sound_dir = os.path.join(script_dir, SETTINGS["paths"]["assets_dir"], 'yinxiao')
+    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'yinxiao')
     try:
-        sp = os.path.join(sound_dir, 'qieshuiguoyinxiao.mp3')
+        sp = os.path.join(base_dir, 'qieshuiguoyinxiao.mp3')
         if os.path.exists(sp): sfx['slice'] = pygame.mixer.Sound(sp)
-        ep = os.path.join(sound_dir, 'baozhayinxiao.mp3')
+        ep = os.path.join(base_dir, 'baozhayinxiao.mp3')
         if os.path.exists(ep): sfx['explosion'] = pygame.mixer.Sound(ep)
     except Exception:
         pass
     return sfx
 
+# 水果对应的果汁颜色
 FRUIT_JUICE_MAP = {
     'banana': 'guozhi1', 'boluo': 'guozhi1', 'iceBanana': 'guozhi2',
     'Mango': 'guozhi1', 'mugua': 'guozhi1', 'peach': 'guozhi3',
@@ -275,34 +259,12 @@ def get_juice_color(fruit_type):
     c = FRUIT_JUICE_MAP.get(fruit_type)
     if c and c in JUICE_IMAGES:
         return c
+    # 找不到就随便给个
     return random.choice(list(JUICE_IMAGES.keys())) if JUICE_IMAGES else None
 
-def start_bgm():
-    if HAS_SOUND:
-        try:
-            bgm_name = SETTINGS["paths"]["bgm_name"]
-            assets_dir = SETTINGS["paths"]["assets_dir"]
-            bgm_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), assets_dir, bgm_name)
-            if not os.path.exists(bgm_path):
-                bgm_path = f'{assets_dir}/{bgm_name}'
-            pygame.mixer.music.load(bgm_path)
-            pygame.mixer.music.play(-1)
-            logger.info(f"背景音乐 {bgm_name} 已成功启动循环播放")
-        except Exception as e:
-            logger.error(f"无法启动背景音乐 {SETTINGS['paths']['bgm_name']}: {e}")
-
-def stop_bgm():
-    if HAS_SOUND:
-        try:
-            pygame.mixer.music.stop()
-            pygame.mixer.music.unload()
-            logger.info("背景音乐已安全停止并释放资源")
-        except Exception:
-            pass
-
 def overlay_image(bg: np.ndarray, fg: np.ndarray, x: int, y: int, rotation: float = 0, alpha_scale: float = 1.0):
-    if fg is None:
-        return
+    # 把带透明通道的PNG贴到背景上，还带旋转，这段算法挺难搞的，直接抄了
+    if fg is None: return
     h, w = fg.shape[:2]
     ov = fg.copy()
     if rotation != 0:
@@ -313,21 +275,19 @@ def overlay_image(bg: np.ndarray, fg: np.ndarray, x: int, y: int, rotation: floa
         nh = int(h * cos + w * sin)
         M[0, 2] += nw / 2 - cx
         M[1, 2] += nh / 2 - cy
-        ov = cv2.warpAffine(ov, M, (nw, nh),
-                            borderMode=cv2.BORDER_CONSTANT,
-                            borderValue=(0, 0, 0, 0))
+        ov = cv2.warpAffine(ov, M, (nw, nh), borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+        
     oh, ow = ov.shape[:2]
     x1, y1 = int(x - ow // 2), int(y - oh // 2)
     x2, y2 = x1 + ow, y1 + oh
-    if x1 >= bg.shape[1] or y1 >= bg.shape[0] or x2 <= 0 or y2 <= 0:
-        return
+    if x1 >= bg.shape[1] or y1 >= bg.shape[0] or x2 <= 0 or y2 <= 0: return
+    
     ox1, oy1 = max(0, -x1), max(0, -y1)
     ox2 = ow - max(0, x2 - bg.shape[1])
     oy2 = oh - max(0, y2 - bg.shape[0])
     bx1 = max(0, x1); by1 = max(0, y1)
     bx2 = min(bg.shape[1], x2); by2 = min(bg.shape[0], y2)
-    if ox2 <= ox1 or oy2 <= oy1:
-        return
+    if ox2 <= ox1 or oy2 <= oy1: return
 
     crop_ov = ov[oy1:oy2, ox1:ox2]
     crop_bg = bg[by1:by2, bx1:bx2]
@@ -343,11 +303,11 @@ def overlay_image(bg: np.ndarray, fg: np.ndarray, x: int, y: int, rotation: floa
             for c in range(3):
                 crop_bg[:, :, c] = (1.0 - alpha_scale) * crop_bg[:, :, c] + alpha_scale * crop_ov[:, :, c]
 
-# 全局预加载素材
-FRUIT_IMAGES = load_fruit_images()
-MULTI_FRUIT_IMAGES = load_multi_fruit_images()
-BOMB_IMAGES = load_bomb_images()
-BLADE_IMAGES = load_blade_images()
-COMBO_IMAGES = load_combo_images()
-JUICE_IMAGES = load_juice_images()
-SOUND_EFFECTS = load_sound_effects()
+# 全局预加载，不然游戏里卡顿
+FRUIT_IMAGES = load_shuiguo_imgs()
+MULTI_FRUIT_IMAGES = load_duo_shuiguo_imgs()
+BOMB_IMAGES = load_zhadan_imgs()
+BLADE_IMAGES = load_daoguang_imgs()
+COMBO_IMAGES = load_combo_imgs()
+JUICE_IMAGES = load_guozhi_imgs()
+SOUND_EFFECTS = load_yinxiao()

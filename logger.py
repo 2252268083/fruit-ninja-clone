@@ -1,14 +1,16 @@
 import logging
 import sys
 
-def get_logger(name="SwiftFruitSlice"):
-    logger = logging.getLogger(name)
-    if not logger.handlers:
-        logger.setLevel(logging.INFO)
-        formatter = logging.Formatter('[%(levelname)s] %(asctime)s - %(message)s', datefmt='%H:%M:%S')
+def get_my_logger(name="SwiftFruitSlice"):
+    # 自己封装的打印，比print好用，能带时间
+    my_log = logging.getLogger(name)
+    if not my_log.handlers:
+        my_log.setLevel(logging.INFO)
+        # TODO: 以后可以考虑把日志存到文件里，方便查bug
+        fm = logging.Formatter('[%(levelname)s] %(asctime)s - %(message)s', datefmt='%H:%M:%S')
         ch = logging.StreamHandler(sys.stdout)
-        ch.setFormatter(formatter)
-        logger.addHandler(ch)
-    return logger
+        ch.setFormatter(fm)
+        my_log.addHandler(ch)
+    return my_log
 
-logger = get_logger()
+my_log = get_my_logger()
