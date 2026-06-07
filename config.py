@@ -10,18 +10,18 @@ from logger import my_log
 # 找配置文件
 my_setting_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'settings.yaml')
 
-def duqu_peizhi():
-    # 默认给个配置，免得第一次跑报错
+def duqu_peizhi():#默认配置
+    # 默认给个配置
     mo_ren = {
         "camera": {"index": 0, "width": 1280, "height": 720},
         "game": {
             "window_width": 1280, 
             "window_height": 720,
-            "spawn_interval": 12, # 水果生成速度，12差不多
-            "max_on_screen": 15
+            "spawn_interval": 12, # 水果生成速度
+            "max_on_screen": 15#当次的数量多少
         },
         "ai": {
-            "max_hands": 4
+            "max_hands": 4#最高识别几只手
         },
         "paths": {
             "assets_dir": "assets",
@@ -42,7 +42,7 @@ def duqu_peizhi():
     try:
         with open(my_setting_file, 'r', encoding='utf-8') as f:
             user_peizhi = yaml.safe_load(f)
-            # 简单合并一下，怕有些字段被删了
+            #合并一下
             if user_peizhi is None:
                 user_peizhi = {}
             for k, v in mo_ren.items():
@@ -67,14 +67,13 @@ try:
     HAS_SOUND = True
 except ImportError:
     HAS_SOUND = False
-    # my_log.warning("没装pygame，没声音，记得 pip install pygame") # 嫌吵先注释了
+    # my_log.warning("没装pygame，没声音，环境pip install pygame") # 
 
 WINDOW_WIDTH  = SETTINGS["game"]["window_width"]
 WINDOW_HEIGHT = SETTINGS["game"]["window_height"]
 
-# ============================================================
-#  处理中文显示的（OpenCV直接写中文会乱码，只能转成PIL画）
-# ============================================================
+#处理中文显示的（OpenCV直接写中文会乱码 转成PIL画）
+
 _ziti_huancun = {}
 
 def get_ziti(size: int) -> ImageFont.ImageFont:
@@ -99,7 +98,7 @@ def get_ziti(size: int) -> ImageFont.ImageFont:
     _ziti_huancun[size] = font
     return font
 
-_wenzi_dui = []
+_wenzi_dui = []#文字堆
 
 def add_cn_text(text: str, pos: tuple, font_size: int = 32,
                 color=(255, 255, 255), bg_color=None, padding: int = 8):
@@ -108,7 +107,7 @@ def add_cn_text(text: str, pos: tuple, font_size: int = 32,
 def flush_cn_texts(frame: np.ndarray):
     global _wenzi_dui
     if not _wenzi_dui: return
-    # 必须转RGB，不然颜色是反的
+    # 转RGB 不然颜色是反的
     pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(pil_img)
     
@@ -125,9 +124,7 @@ def flush_cn_texts(frame: np.ndarray):
     _wenzi_dui = []
     np.copyto(frame, cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR))
 
-# ============================================================
 #  加载图片和声音素材
-# ============================================================
 FRUIT_TYPES = ['banana', 'boluo', 'iceBanana', 'Mango', 'mugua', 'peach', 'pear', 'pineapple', 'strawberry', 'b1']
 MULTI_FRUIT_TYPES = ['watermelon', 'dragonfruit']
 
@@ -146,8 +143,13 @@ def load_shuiguo_imgs():
         if os.path.exists(w_path):
             wi = cv2.imread(w_path, cv2.IMREAD_UNCHANGED)
             li = cv2.imread(l_path, cv2.IMREAD_UNCHANGED)
-            ri = cv2.imread(r_path, cv2.IMREAD_UNCHANGED)
-            imgs[name] = {'whole': wi, 'left': li, 'right': ri}
+            ri = cv2.imread(r_path, cv2.IMREAD_UNCHANGED)  
+            # 校验三张图片是否都成功读取
+            if wi is not None and li is not None and ri is not None:
+                imgs[name] = {'whole': wi, 'left': li, 'right': ri}
+            else:
+                from logger import my_log#防止检测不到照片直接程序卡死
+                my_log.warning(f"水果 {name} 的图片素材不完整或损坏识别不到 已跳过加载")
     return imgs
 
 def load_duo_shuiguo_imgs():
