@@ -5,7 +5,7 @@ import vision_engine
 import time
 
 def draw_jindu_tiao(frame, area, progress):
-    # 画那个绿色的加载条，抄的网上的特效
+    #画那个绿色的加载条 抄的网上的特效
     x, y, w, h = area['x'], area['y'], area['w'], area['h']
     bx, by = x + 10, y + h + 15
     bw, bh = w - 20, 25
@@ -14,11 +14,11 @@ def draw_jindu_tiao(frame, area, progress):
     cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), (200, 200, 200), 2)
 
 def xuanze_moshi_ui(cap) -> str:
-    # 选模式的界面
+    #选模式的界面
     box_w, box_h = 320, 280
     gap  = (config.WINDOW_WIDTH - 3 * box_w) // 4
     
-    # 用字典存区域，免得写一堆if else
+    #用字典存区域 免得写一堆if else
     areas = {
         'single': {'x': gap,              'y': 240, 'w': box_w, 'h': box_h},
         'dual':   {'x': gap*2 + box_w,    'y': 240, 'w': box_w, 'h': box_h},
@@ -26,10 +26,10 @@ def xuanze_moshi_ui(cap) -> str:
     }
     
     hover_time = {k: 0 for k in areas}
-    max_hover = 30 # 悬停多久算确认，大概30帧
+    max_hover = 30#停多久算确认 大概30帧
     now_hover = None
     
-    # 之前手太抖，选不中，加个平滑器
+    #之前手太抖选不中 加个平滑器
     my_smoother = math_utils.FingerSmoother(method='ewma', alpha=0.4, adaptive=True)
 
     labels  = {'single': '单手模式', 'dual': '双手模式', 'pk': '双人PK'}
@@ -40,12 +40,12 @@ def xuanze_moshi_ui(cap) -> str:
     while True:
         ok, frame = cap.read()
         if not ok: 
-            return 'single' # 读不到图就默认单手吧
+            return 'single'#读不到图就默认单手吧
             
         frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
         frame = cv2.flip(frame, 1)
         
-        # 搞个半透明遮罩看起来高级点
+        #搞个半透明遮罩看起来高级点
         zhezhao = frame.copy()
         cv2.rectangle(zhezhao, (0, 0), (config.WINDOW_WIDTH, config.WINDOW_HEIGHT), (0, 0, 0), -1)
         cv2.addWeighted(zhezhao, 0.55, frame, 0.45, 0, frame)
@@ -53,7 +53,7 @@ def xuanze_moshi_ui(cap) -> str:
         config.add_cn_text('选择游戏模式', (config.WINDOW_WIDTH//2 - 180, 55),  font_size=60, color=(255, 220, 0))
         config.add_cn_text('悬停食指 3 秒确认', (config.WINDOW_WIDTH//2 - 160, 140), font_size=34, color=(200, 200, 200))
 
-        # 画框框
+        #画框框
         for k, a in areas.items():
             x, y, w, h = a['x'], a['y'], a['w'], a['h']
             is_hover = (now_hover == k)
@@ -77,18 +77,18 @@ def xuanze_moshi_ui(cap) -> str:
                            (config.WINDOW_WIDTH//2 - 320, config.WINDOW_HEIGHT - 55),
                            font_size=24, color=(140, 140, 140))
 
-        # 找手
+        #找手
         rgb_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         lm_list, _ = vision_engine.detect_hands(rgb_img)
         now_hover = None
         
         if lm_list:
-            # 取食指尖 (点8)
+            #拿食指尖(点8)
             tip = lm_list[0][8]
             rx, ry = int(tip.x * config.WINDOW_WIDTH), int(tip.y * config.WINDOW_HEIGHT)
             sx, sy = my_smoother.smooth(rx, ry)
             
-            # 画个圈提示位置
+            #画个圈提示位置
             cv2.circle(frame, (sx, sy), 22, (0, 255, 255), 3)
             cv2.circle(frame, (sx, sy), 12, (0, 255, 0), cv2.FILLED)
             
@@ -115,7 +115,7 @@ def xuanze_moshi_ui(cap) -> str:
 
 
 def xuanze_daoguang_ui(cap) -> str:
-    # 选刀光，TODO：以后想加个彩虹刀特效
+    #选刀光 以后想加个彩虹刀特效
     areas = {
         'dao1': {'x': 200, 'y': 280, 'w': 300, 'h': 300},
         'dao2': {'x': 780, 'y': 280, 'w': 300, 'h': 300},
@@ -200,7 +200,7 @@ def xuanze_daoguang_ui(cap) -> str:
 
 
 def jiesuan_ui(cap, game_obj) -> str:
-    # 游戏结束的结算界面
+    #死了之后的结算页面
     areas = {
         'restart': {'x': 300, 'y': 380, 'w': 300, 'h': 200},
         'menu':    {'x': 680, 'y': 380, 'w': 300, 'h': 200}
@@ -210,7 +210,7 @@ def jiesuan_ui(cap, game_obj) -> str:
     my_smoother = math_utils.FingerSmoother(method='ewma', alpha=0.4, adaptive=True)
     
     start_t = time.time()
-    wait_s = 2.0  # 刚死的时候不能马上点，防误触
+    wait_s = 2.0  #刚死的时候不能马上点 防误触
     
     while True:
         ok, frame = cap.read()
@@ -225,7 +225,7 @@ def jiesuan_ui(cap, game_obj) -> str:
         
         config.add_cn_text('游戏结束', (config.WINDOW_WIDTH//2 - 120, 80), 80, (255, 255, 255))
         
-        # 显示得分，之前没传game对象导致分数全是0，现在修好了
+        #之前没传game对象导致分数全是0 现在修好了
         if game_obj.mode == 'pk':
             if game_obj.winner == 'p1':
                 config.add_cn_text('🏆 玩家一获胜！', (config.WINDOW_WIDTH//2 - 170, 200), 50, (255, 200, 0))
@@ -236,10 +236,10 @@ def jiesuan_ui(cap, game_obj) -> str:
             config.add_cn_text(f'玩家一: {game_obj.p1.score}分   玩家二: {game_obj.p2.score}分', (config.WINDOW_WIDTH//2 - 230, 280), 30, (200, 200, 200))
         else:
             config.add_cn_text(f'本次得分: {game_obj.score}', (config.WINDOW_WIDTH//2 - 150, 180), 50, (0, 255, 255))
-            if game_obj.game_over_reason:
+            if getattr(game_obj, 'game_over_reason', None):
                 config.add_cn_text(game_obj.game_over_reason, (config.WINDOW_WIDTH//2 - 160, 260), 30, (255, 100, 100))
 
-        # 延迟逻辑
+        #延迟显示选项
         if time.time() - start_t > wait_s:
             for k, a in areas.items():
                 x, y, w, h = a['x'], a['y'], a['w'], a['h']

@@ -4,8 +4,10 @@ import yaml
 import random
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-
 from logger import my_log
+"""
+加载配置文件 把各种内容读取到内存 把照片转成透明通道 超出部分裁剪 （照片的处理与读取）
+"""
 
 # 找配置文件
 my_setting_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'settings.yaml')
@@ -266,10 +268,10 @@ def get_juice_color(fruit_type):
 
 def overlay_image(bg: np.ndarray, fg: np.ndarray, x: int, y: int, rotation: float = 0, alpha_scale: float = 1.0):
     # 把带透明通道的PNG贴到背景上，带旋转
-    if fg is None: return
-    h, w = fg.shape[:2]
+    if fg is None: return#如果没有照片就无
+    h, w = fg.shape[:2]#获取宽高
     ov = fg.copy()
-    if rotation != 0:
+    if rotation != 0:#如果旋转，计算转后大小
         cx, cy = w // 2, h // 2
         M = cv2.getRotationMatrix2D((cx, cy), rotation, 1.0)
         cos, sin = abs(M[0, 0]), abs(M[0, 1])
@@ -279,33 +281,33 @@ def overlay_image(bg: np.ndarray, fg: np.ndarray, x: int, y: int, rotation: floa
         M[1, 2] += nh / 2 - cy
         ov = cv2.warpAffine(ov, M, (nw, nh), borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
         
-    oh, ow = ov.shape[:2]
-    x1, y1 = int(x - ow // 2), int(y - oh // 2)
-    x2, y2 = x1 + ow, y1 + oh
-    if x1 >= bg.shape[1] or y1 >= bg.shape[0] or x2 <= 0 or y2 <= 0: return
+    oh, ow = ov.shape[:2]#获取图片的宽和高
+    x1, y1 = int(x - ow // 2), int(y - oh // 2)#左上角的坐标
+    x2, y2 = x1 + ow, y1 + oh#右上角的坐标
+    if x1 >= bg.shape[1] or y1 >= bg.shape[0] or x2 <= 0 or y2 <= 0: return#如果太大 完全超出屏幕 为空
     
-    ox1, oy1 = max(0, -x1), max(0, -y1)
-    ox2 = ow - max(0, x2 - bg.shape[1])
-    oy2 = oh - max(0, y2 - bg.shape[0])
-    bx1 = max(0, x1); by1 = max(0, y1)
-    bx2 = min(bg.shape[1], x2); by2 = min(bg.shape[0], y2)
-    if ox2 <= ox1 or oy2 <= oy1: return
+    ox1, oy1 = max(0, -x1), max(0, -y1)#计算裁剪的左边，上边
+    ox2 = ow - max(0, x2 - bg.shape[1])#右
+    oy2 = oh - max(0, y2 - bg.shape[0])#下
+    bx1 = max(0, x1); by1 = max(0, y1)#背景开始贴的位置
+    bx2 = min(bg.shape[1], x2); by2 = min(bg.shape[0], y2)#结束位置
+    if ox2 <= ox1 or oy2 <= oy1: return#无内容直接无
 
-    crop_ov = ov[oy1:oy2, ox1:ox2]
-    crop_bg = bg[by1:by2, bx1:bx2]
+    crop_ov = ov[oy1:oy2, ox1:ox2]#剪去超出的部分剩下的
+    crop_bg = bg[by1:by2, bx1:bx2]#背景:要被覆盖的区域
     
-    if crop_ov.shape[2] == 4:
-        alpha = (crop_ov[:, :, 3] / 255.0) * alpha_scale
-        for c in range(3):
+    if crop_ov.shape[2] == 4:#判断图片透明通道
+        alpha = (crop_ov[:, :, 3] / 255.0) * alpha_scale#取出透明度
+        for c in range(3):#对三个通道混合
             crop_bg[:, :, c] = (1.0 - alpha) * crop_bg[:, :, c] + alpha * crop_ov[:, :, c]
     else:
         if alpha_scale == 1.0:
-            bg[by1:by2, bx1:bx2] = crop_ov
+            bg[by1:by2, bx1:bx2] = crop_ov#完全覆盖
         else:
-            for c in range(3):
+            for c in range(3):#半透明覆盖
                 crop_bg[:, :, c] = (1.0 - alpha_scale) * crop_bg[:, :, c] + alpha_scale * crop_ov[:, :, c]
 
-# 全局预加载，不然游戏里卡顿
+# 全局预加载
 FRUIT_IMAGES = load_shuiguo_imgs()
 MULTI_FRUIT_IMAGES = load_duo_shuiguo_imgs()
 BOMB_IMAGES = load_zhadan_imgs()

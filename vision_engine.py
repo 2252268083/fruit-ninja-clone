@@ -18,8 +18,8 @@ _TASK_DIRS = [
 ]
 _real_task_path = next((p for p in _TASK_DIRS if os.path.exists(p)), None)
 if _real_task_path is None:
-    # 之前路径写死老是找不到文件，现在改自动搜索了
-    raise FileNotFoundError("找不到模型文件，看下 models 文件夹里有没有 hand_landmarker.task")
+    #之前路径写死老是找不到文件 现在改自动搜索了
+    raise FileNotFoundError("找不到模型文件 看下models文件夹里有没有hand_landmarker.task")
 
 my_log.info(f"加载模型: {_real_task_path}")
 
@@ -28,27 +28,27 @@ def init_shoushi_det(max_hands: int) -> _mp_vis.HandLandmarker:
         base_options=_mp_py.BaseOptions(model_asset_path=_real_task_path),
         running_mode=_RunMode.VIDEO,
         num_hands=max_hands,
-        # FIXME: 现场如果光线太暗或者背景太乱，检测容易断连，回头试试把这个阈值再调低点或者加个自适应
+        #现场如果光线太暗或者背景太乱 检测容易断连 回头试试把这个阈值再调低点或者加个自适应
         min_hand_detection_confidence=0.25, 
         min_hand_presence_confidence=0.25,
         min_tracking_confidence=0.35,
     )
     return _mp_vis.HandLandmarker.create_from_options(opts)
 
-# 配置文件里读取最大手部数量，默认4个够了
+#配置文件里读取最大手部数量 默认4个够了
 max_shou = config.SETTINGS["ai"].get("max_hands", 4)
 hand_det: _mp_vis.HandLandmarker = init_shoushi_det(max_shou)
 start_ns: int = time.perf_counter_ns()
 
 def get_now_ms() -> int:
-    # mp要求的时间戳必须是严格递增的，不然直接崩溃
+    #mp要求的时间戳必须是严格递增的 不然直接崩溃
     return int((time.perf_counter_ns() - start_ns) // 1_000_000)
 
 def detect_hands(rgb_frame: np.ndarray):
     mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
     ts_ms = get_now_ms()
     
-    # print(f"当前送入模型的时间戳: {ts_ms}")
+    #print(f"当前送入模型的时间戳: {ts_ms}")
     
     res = hand_det.detect_for_video(mp_img, ts_ms)
     
@@ -61,7 +61,7 @@ def detect_hands(rgb_frame: np.ndarray):
             
     if hasattr(res, 'handedness') and res.handedness:
         for h_type in res.handedness:
-            # 记录一下是左手还是右手，虽然现在还没怎么用到
+            #记录一下是左手还是右手 虽然现在还没怎么用到
             hand_types.append(h_type[0].category_name)
             
     return all_lms, hand_types
