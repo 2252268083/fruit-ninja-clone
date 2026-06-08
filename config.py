@@ -251,6 +251,24 @@ def load_yinxiao():#读取打击特效时的音效
         pass
     return sfx
 
+def play_bgm():#播放背景音乐
+    if not HAS_SOUND: return
+    #从配置里拿音乐名字
+    bgm_name = SETTINGS["paths"].get("bgm_name", "1.mp3")
+    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"])
+    bgm_path = os.path.join(base_dir, bgm_name)
+    try:
+        if os.path.exists(bgm_path):
+            pygame.mixer.music.load(bgm_path)#加载音乐
+            pygame.mixer.music.set_volume(0.4)#声音稍微调小点 别盖过切水果的音效
+            pygame.mixer.music.play(-1)#-1就是一直循环播放
+        else:
+            from logger import my_log
+            my_log.warning(f"没找到背景音乐文件: {bgm_path}")
+    except Exception as e:
+        from logger import my_log
+        my_log.error(f"播放背景音乐失败: {e}")
+
 # 水果对应的果汁颜色
 FRUIT_JUICE_MAP = {
     'banana': 'guozhi1', 'boluo': 'guozhi1', 'iceBanana': 'guozhi2',

@@ -29,6 +29,8 @@ def main():#游戏的主函数
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.SETTINGS["camera"]["width"])
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.SETTINGS["camera"]["height"])
     cv2.namedWindow('Swift-Fruit-Slice')#搞个窗口
+    
+    config.play_bgm()#游戏一开始就把背景音乐放起来
 
     while True:#游戏大循环 可以无限次重新开始
         # --- 1. 选模式 ---
