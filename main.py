@@ -4,7 +4,7 @@ import math
 from collections import deque
 import warnings
 
-# 去掉烦人的警告
+# 去掉警告
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['GLOG_minloglevel'] = '2'

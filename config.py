@@ -135,12 +135,12 @@ def load_shuiguo_imgs():
         w_path = os.path.join(base_dir, f'{name}.png')
         if name == 'b1':
             l_path = os.path.join(base_dir, 'bl.png')
-            r_path = os.path.join(base_dir, 'br.png')
+            r_path = os.path.join(base_dir, 'br.png')#柠檬
         else:
             l_path = os.path.join(base_dir, f'{name}l.png')
-            r_path = os.path.join(base_dir, f'{name}r.png')
+            r_path = os.path.join(base_dir, f'{name}r.png')#找不到就看 其他水果的左边或者右边 就是一半一半
             
-        if os.path.exists(w_path):
+        if os.path.exists(w_path):#检查完整
             wi = cv2.imread(w_path, cv2.IMREAD_UNCHANGED)
             li = cv2.imread(l_path, cv2.IMREAD_UNCHANGED)
             ri = cv2.imread(r_path, cv2.IMREAD_UNCHANGED)  
@@ -160,24 +160,24 @@ def load_duo_shuiguo_imgs():
     
     # 1. 西瓜
     wp = os.path.join(base_dir, 'watermelon.png')
-    if os.path.exists(wp):
-        wi = cv2.imread(wp, cv2.IMREAD_UNCHANGED)
-        if wi is not None:
-            wi = cv2.resize(wi, None, fx=suofang, fy=suofang)
-            kuai = []
+    if os.path.exists(wp):#检查文件在不在
+        wi = cv2.imread(wp, cv2.IMREAD_UNCHANGED)#cv2专门检测照片能不能完整读取
+        if wi is not None:#如果图片是完整的
+            wi = cv2.resize(wi, None, fx=suofang, fy=suofang)#照片的缩放
+            kuai = []#存一下照片的
             for i in range(1, 9):
                 pp = os.path.join(base_dir, f'watermelon{i}.png')
                 if os.path.exists(pp):
-                    pi = cv2.imread(pp, cv2.IMREAD_UNCHANGED)
+                    pi = cv2.imread(pp, cv2.IMREAD_UNCHANGED)#检查照片的完整
                     if pi is not None:
-                        kuai.append(cv2.resize(pi, None, fx=suofang, fy=suofang))
+                        kuai.append(cv2.resize(pi, None, fx=suofang, fy=suofang))#完整就同比例缩放进列表里
             if len(kuai) == 8:
                 imgs['watermelon'] = {'whole': wi, 'pieces': kuai, 'piece_count': 8}
                 
-    # 2. 火龙果/全切块水果
+    # 2. 火龙果 跟上面一样
     dp = os.path.join(base_dir, 'all.png')
     if os.path.exists(dp):
-        wi = cv2.imread(dp, cv2.IMREAD_UNCHANGED)
+        wi = cv2.imread(dp, cv2.IMREAD_UNCHANGED)#检查
         if wi is not None:
             wi = cv2.resize(wi, None, fx=suofang, fy=suofang)
             kuai = []
@@ -191,7 +191,7 @@ def load_duo_shuiguo_imgs():
                 imgs['dragonfruit'] = {'whole': wi, 'pieces': kuai, 'piece_count': 8}
     return imgs
 
-def load_guozhi_imgs():
+def load_guozhi_imgs():#果汁特效
     imgs = {}
     base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'texiao')
     for i in range(1, 5):
@@ -203,7 +203,7 @@ def load_guozhi_imgs():
                 imgs[name] = img
     return imgs
 
-def load_zhadan_imgs():
+def load_zhadan_imgs():#炸弹的
     imgs = {}
     base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'zhadan')
     for key, fname, sc in [('bomb1', 'boom1.png', 1.0), ('bomb2', 'boom2.png', 1.0), ('explosion1', 'zha01.png', 2.0), ('explosion2', 'zha02.png', 2.0)]:
@@ -214,7 +214,7 @@ def load_zhadan_imgs():
                 imgs[key] = cv2.resize(img, None, fx=sc, fy=sc) if sc != 1.0 else img
     return imgs
 
-def load_daoguang_imgs():
+def load_daoguang_imgs():#刀的皮肤
     imgs = {}
     base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'daoguang')
     for name in ['dao1', 'dao2']:
@@ -225,7 +225,7 @@ def load_daoguang_imgs():
                 imgs[name] = img
     return imgs
 
-def load_combo_imgs():
+def load_combo_imgs():#特效的光效
     imgs = {}
     base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'texiao')
     for name in ['combo1', 'combo2', 'combo3']:
@@ -236,7 +236,7 @@ def load_combo_imgs():
                 imgs[name] = img
     return imgs
 
-def load_yinxiao():
+def load_yinxiao():#读取打击特效时的音效
     sfx = {}
     if not HAS_SOUND: return sfx
     base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'yinxiao')
@@ -261,11 +261,11 @@ def get_juice_color(fruit_type):
     c = FRUIT_JUICE_MAP.get(fruit_type)
     if c and c in JUICE_IMAGES:
         return c
-    # 找不到就随便给个
+    # 找不到就随便给个果汁
     return random.choice(list(JUICE_IMAGES.keys())) if JUICE_IMAGES else None
 
 def overlay_image(bg: np.ndarray, fg: np.ndarray, x: int, y: int, rotation: float = 0, alpha_scale: float = 1.0):
-    # 把带透明通道的PNG贴到背景上，还带旋转，这段算法挺难搞的，直接抄了
+    # 把带透明通道的PNG贴到背景上，带旋转
     if fg is None: return
     h, w = fg.shape[:2]
     ov = fg.copy()

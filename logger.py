@@ -1,6 +1,6 @@
 import logging
 import sys
-
+#日志
 def get_my_logger(name="SwiftFruitSlice"):
     # 自己封装的打印，比print好用，能带时间
     my_log = logging.getLogger(name)
