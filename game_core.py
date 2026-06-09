@@ -1,12 +1,11 @@
-import cv2
 """
 游戏的核心逻辑，包括水果、炸弹、玩家、特效等所有游戏内实体的定义与行为。
-物理引擎、碰撞检测、计分规则、游戏主循环的更新与绘制都在这里。
+物理引擎、碰撞检测、计分规则、游戏主循环的更新与绘制。
 """
+import cv2
 import math
 import random
 import time
-from collections import deque
 import config
 
 class my_wanjia:
@@ -27,7 +26,7 @@ class my_shuiguo: # 定义单个水果的属性和行为
         else:
             self.radius = 50 # 如果没有图片，给一个默认半径
             
-        # 物理引擎参数：模拟抛物线运动
+        # 物理引擎参数：模拟抛物线运动（真实）
         self.vx = random.uniform(-2, 2) # 水平速度
         self.vy = random.uniform(-19, -15) # 垂直初速度（向上抛）
         self.gravity = 0.32 # 重力加速度
