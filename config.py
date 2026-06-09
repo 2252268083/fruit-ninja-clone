@@ -103,11 +103,11 @@ def get_ziti(size: int) -> ImageFont.ImageFont:
 
 _wenzi_dui = []#文字堆
 
-def add_cn_text(text: str, pos: tuple, font_size: int = 32,
+def add_cn_text(text: str, pos: tuple, font_size: int = 32,#opencv不能绘画
                 color=(255, 255, 255), bg_color=None, padding: int = 8):
     _wenzi_dui.append((text, pos, font_size, color, bg_color, padding))
 
-def flush_cn_texts(frame: np.ndarray):
+def flush_cn_texts(frame: np.ndarray):#解决了中文不能绘画上去的问题
     global _wenzi_dui
     if not _wenzi_dui: return
     # 转RGB 不然颜色是反的
