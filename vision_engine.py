@@ -5,7 +5,7 @@ import mediapipe as mp
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision as mp_vision
 
-from logger import my_log
+from logger import my_log#日志
 import config
 
 _mp_py = mp_python
@@ -18,8 +18,8 @@ _TASK_DIRS = [
 ]
 _real_task_path = next((p for p in _TASK_DIRS if os.path.exists(p)), None)
 if _real_task_path is None:
-    #之前路径写死老是找不到文件 现在改自动搜索了
-    raise FileNotFoundError("找不到模型文件 看下models文件夹里有没有hand_landmarker.task")
+    #之前路径写死老是找不到文件 改自动搜索
+    raise FileNotFoundError("找不到模型文件 models文件夹里有没有hand_landmarker.task")
 
 my_log.info(f"加载模型: {_real_task_path}")
 

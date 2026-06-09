@@ -1,15 +1,17 @@
 import math
 from collections import deque
-
+"""
+手势的防抖算法
+"""
 class FingerSmoother:
-    #之前坐标跳来跳去 查资料加了个平滑器
+    #之前坐标跳来跳去 加了平滑器
     def __init__(self, method='ewma', alpha=0.5, buffer_size=5, adaptive=True):
         self.method = method
         self.alpha = alpha
         self.adaptive = adaptive
         self.smoothed_pos = None
         self.prev_raw_pos = None
-        #buffer主要是给moving_avg用的 kalman太复杂了暂时没用到
+        #buffer主要是给moving_avg用的 可用 kalman（复杂）暂时没用到
         self.position_buffer = deque(maxlen=buffer_size)
 
     def _speed(self, x, y):
@@ -32,16 +34,16 @@ class FingerSmoother:
         
         if self.method == 'ewma':
             if self.smoothed_pos is None:
-                self.smoothed_pos = (x, y)
+                self.smoothed_pos = (x, y)#旧
                 return x, y
-            #动态调整平滑系数
-            a = self._adaptive_alpha(speed) if self.adaptive and speed > 0 else self.alpha
-            sx = a * x + (1 - a) * self.smoothed_pos[0]
-            sy = a * y + (1 - a) * self.smoothed_pos[1]
-            self.smoothed_pos = (sx, sy)
+            #动态调整平滑系数（主要能让刀平滑过去的算法）（算新坐标和旧坐标过渡）
+            a = self._adaptive_alpha(speed) if self.adaptive and speed > 0 else self.alpha#是否开启自适应
+            sx = a * x + (1 - a) * self.smoothed_pos[0]#x坐标（平滑）
+            sy = a * y + (1 - a) * self.smoothed_pos[1]#y坐标，渐变过渡
+            self.smoothed_pos = (sx, sy)#存 下次调用
             return int(sx), int(sy)
             
-        elif self.method == 'moving_avg':
+        elif self.method == 'moving_avg':#求平均 让抖动平均掉
             self.position_buffer.append((x, y))
             #速度太快就少取点历史记录
             pts = list(self.position_buffer)[-2:] if (self.adaptive and speed > 20) else list(self.position_buffer)

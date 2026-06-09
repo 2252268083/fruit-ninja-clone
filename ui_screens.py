@@ -3,9 +3,11 @@ import config
 import math_utils
 import vision_engine
 import time
-
+"""
+游戏主页面的ui选择 界面
+"""
 def draw_jindu_tiao(frame, area, progress):
-    #画那个绿色的加载条 抄的网上的特效
+    #画那个绿色的加载条 特效
     x, y, w, h = area['x'], area['y'], area['w'], area['h']
     bx, by = x + 10, y + h + 15
     bw, bh = w - 20, 25
@@ -115,7 +117,7 @@ def xuanze_moshi_ui(cap) -> str:
 
 
 def xuanze_daoguang_ui(cap) -> str:
-    #选刀光 以后想加个彩虹刀特效
+    #选刀光 后续  加入（彩虹刀特效）
     areas = {
         'dao1': {'x': 200, 'y': 280, 'w': 300, 'h': 300},
         'dao2': {'x': 780, 'y': 280, 'w': 300, 'h': 300},
@@ -225,8 +227,8 @@ def jiesuan_ui(cap, game_obj) -> str:
         
         config.add_cn_text('游戏结束', (config.WINDOW_WIDTH//2 - 120, 80), 80, (255, 255, 255))
         
-        #之前没传game对象导致分数全是0 现在修好了
-        if game_obj.mode == 'pk':
+        #之前没传game对象导致分数全是0 注意bug 已修复
+        if game_obj.mode == 'pk':#双人模式
             if game_obj.winner == 'p1':
                 config.add_cn_text('🏆 玩家一获胜！', (config.WINDOW_WIDTH//2 - 170, 200), 50, (255, 200, 0))
             elif game_obj.winner == 'p2':
