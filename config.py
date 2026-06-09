@@ -20,7 +20,8 @@ def duqu_peizhi():#默认配置
             "window_width": 1280, 
             "window_height": 720,
             "spawn_interval": 12, # 水果生成速度
-            "max_on_screen": 15#当次的数量多少
+            "max_on_screen": 15,#当次的数量多少
+            "total_time" : 30#双人pk的时候，时长调整
         },
         "ai": {
             "max_hands": 4#最高识别几只手

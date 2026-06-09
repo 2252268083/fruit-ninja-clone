@@ -345,8 +345,8 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
         
         self.game_over = False # 游戏是否结束
         self.game_over_reason = "" # 游戏结束原因
-        self.max_missed = 10 # 最大允许漏掉数
-        self.max_bombs_hit = 3 # 最大允许碰到炸弹数
+        self.max_missed = 15 # 最大允许漏掉数
+        self.max_bombs_hit = 4 # 最大允许碰到炸弹数
         
         self.max_on_screen = config.SETTINGS["game"].get("max_on_screen", 15) # 屏幕上最多有多少个物体
         self.bomb_chance = 0.22 # 生成炸弹的概率
@@ -360,7 +360,7 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
         self.p1 = my_wanjia() # 玩家1
         self.p2 = my_wanjia() # 玩家2
         self.start_time = time.time() # PK模式开始时间
-        self.total_time = 30.0 # PK模式总时长
+        self.total_time = config.SETTINGS["game"].get("total_time", 15)
         self.winner = '' # 获胜者
         
         self.suiji_shengcheng() # 初始化时就生成第一波水果
@@ -507,7 +507,7 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
                         self.combo = 0 # 连击清零
                         if b.bomb_type == 'deadly': # 如果是致命炸弹
                             self.game_over = True # 游戏直接结束
-                            self.game_over_reason = "切到了致命炸弹！"
+                            self.game_over_reason = "切到了红色致命炸弹！"
                         else: # 如果是普通炸弹
                             self.bombs_hit += 1 # 触弹次数+1
                             self.score = max(0, self.score - 3) # 扣分
@@ -515,14 +515,14 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
                                 self.game_over = True # 游戏结束
                                 self.game_over_reason = "触碰炸弹次数过多！"
                                 
-        # --- 连击特效判断 ---
+        #连击特效判断
         # TODO: 后续把神湾菠萝的爆汁动效改得更逼真一点
         if cut_something and self.mode != 'pk':
             if self.combo in [3, 7, 12] or (self.combo > 12 and self.combo % 5 == 0): # 当达到特定连击数时
                 self.combo_fx.append(Effect_Lianji(self.combo)) # 添加一个连击特效
 
     def draw(self, frame): # 绘制游戏的所有内容到屏幕上
-        # --- 依次绘制所有游戏实体 ---
+        #依次绘制所有游戏实体
         for f in self.fruits: f.draw(frame)
         for mf in self.multi_fruits: mf.draw(frame)
         for b in self.bombs: b.draw(frame)

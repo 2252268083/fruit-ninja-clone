@@ -10,6 +10,7 @@ game:
   window_height: 720    # 游戏渲染窗口高度
   spawn_interval: 20    # 水果生成的间隔时间（帧数），数值越小，水果弹出越快越密集
   max_on_screen: 12     # 屏幕上允许同时存在的最大水果/炸弹数量
+  total_time: 14 #双人pk的时候，时长调整
 
 ai:
   max_hands: 6          # AI 最多同时识别的手部数量（影响性能和刀光数量）
