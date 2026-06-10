@@ -9,6 +9,10 @@ from logger import my_log
 加载配置文件 把各种内容读取到内存 把照片转成透明通道 超出部分裁剪 （照片的处理与读取）和背景音乐
 """
 
+FRUIT_IMAGES = {}
+FRUIT_TYPES = []
+MULTI_FRUIT_TYPES = ['watermelon', 'dragonfruit']
+MULTI_FRUIT_IMAGES = {}
 # 找配置文件
 my_setting_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'settings.yaml')
 
@@ -21,7 +25,9 @@ def duqu_peizhi():#默认配置
             "window_height": 720,
             "spawn_interval": 12, # 水果生成速度
             "max_on_screen": 15,#当次的数量多少
-            "total_time" : 30#双人pk的时候，时长调整
+            "total_time" : 30,#双人pk的时候，时长调整
+            "fruit_theme": "default" ,# 新增：默认主题开关
+            "ads_scale":0.7
         },
         "ai": {
             "max_hands": 4#最高识别几只手
@@ -127,9 +133,66 @@ def flush_cn_texts(frame: np.ndarray):#解决了中文不能绘画上去的问�
     _wenzi_dui = []
     np.copyto(frame, cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR))
 
-#  加载图片和声音素材
-FRUIT_TYPES = ['banana', 'boluo', 'iceBanana', 'Mango', 'mugua', 'peach', 'pear', 'pineapple', 'strawberry', 'b1']
-MULTI_FRUIT_TYPES = ['watermelon', 'dragonfruit']
+
+
+def load_dynamic_ads(base_dir, theme_folder="ads", scale=0.7):
+    ads_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        base_dir, "sucai", theme_folder
+    )
+    loaded_imgs = {}
+
+    if not os.path.exists(ads_path):
+        my_log.warning(f"广告文件夹不存在: {ads_path}")
+        return loaded_imgs
+
+    for filename in os.listdir(ads_path):
+        if not filename.lower().endswith(".png"):
+            continue
+        if filename.lower().endswith("l.png") or filename.lower().endswith("r.png"):
+            continue
+
+        name = os.path.splitext(filename)[0]
+        p_whole = os.path.join(ads_path, filename)
+        p_left = os.path.join(ads_path, f"{name}l.png")
+        p_right = os.path.join(ads_path, f"{name}r.png")
+
+        img_w = cv2.imread(p_whole, cv2.IMREAD_UNCHANGED)
+        img_l = cv2.imread(p_left, cv2.IMREAD_UNCHANGED)
+        img_r = cv2.imread(p_right, cv2.IMREAD_UNCHANGED)
+
+        if img_w is None:
+            my_log.warning(f"完整图读取失败: {p_whole}")
+            continue
+        if img_l is None or img_r is None:
+            my_log.warning(f"素材缺失: {name} 缺少切开部分，跳过该素材")
+            continue
+
+        if scale != 1.0:
+            img_w = cv2.resize(img_w, (0, 0), fx=scale, fy=scale)
+            img_l = cv2.resize(img_l, (0, 0), fx=scale, fy=scale)
+            img_r = cv2.resize(img_r, (0, 0), fx=scale, fy=scale)
+
+        loaded_imgs[name] = {'whole': img_w, 'left': img_l, 'right': img_r}
+
+    return loaded_imgs
+
+
+SUIGUO_ZHUTI = SETTINGS["game"].get("fruit_theme", "default")
+
+if SUIGUO_ZHUTI == "ads":
+    FRUIT_IMAGES = load_dynamic_ads(
+        SETTINGS["paths"]["assets_dir"],
+        "ads",
+        scale=SETTINGS["game"].get("ads_scale", 0.75)
+    )
+
+    print("广告素材加载成功：", FRUIT_IMAGES.keys())
+
+    FRUIT_TYPES = list(FRUIT_IMAGES.keys())
+else:
+    FRUIT_TYPES = ['banana', 'boluo', 'iceBanana', 'Mango', 'mugua', 'peach', 'pear', 'pineapple', 'strawberry', 'b1']
+
 
 def load_shuiguo_imgs():
     imgs = {}
@@ -153,8 +216,10 @@ def load_shuiguo_imgs():
             else:
                 from logger import my_log#防止检测不到照片直接程序卡死
                 my_log.warning(f"水果 {name} 的图片素材不完整或损坏识别不到 已跳过加载")
+
     return imgs
 
+MULTI_FRUIT_IMAGES = load_shuiguo_imgs()
 def load_duo_shuiguo_imgs():
     # 西瓜和火龙果这种能切成好几块的
     imgs = {}
@@ -271,12 +336,22 @@ def play_bgm():#播放背景音乐
         my_log.error(f"播放背景音乐失败: {e}")
 
 # 水果对应的果汁颜色
+# 水果对应的果汁颜色
 FRUIT_JUICE_MAP = {
     'banana': 'guozhi1', 'boluo': 'guozhi1', 'iceBanana': 'guozhi2',
     'Mango': 'guozhi1', 'mugua': 'guozhi1', 'peach': 'guozhi3',
     'pear': 'guozhi2', 'pineapple': 'guozhi1', 'strawberry': 'guozhi4',
     'watermelon': 'guozhi4', 'dragonfruit': 'guozhi3', 'b1': 'guozhi1',
+    'shenwan_boluo': 'guozhi1',  # 新增：商业水果果汁1
+    'huangpu_lawei': 'guozhi2',  # 新增：商业水果果汁2
 }
+
+if SUIGUO_ZHUTI == "ads":
+    for name in FRUIT_TYPES:
+        if name not in FRUIT_JUICE_MAP:
+            FRUIT_JUICE_MAP[name] = "guozhi1"
+
+
 
 def get_juice_color(fruit_type):
     c = FRUIT_JUICE_MAP.get(fruit_type)
@@ -327,7 +402,7 @@ def overlay_image(bg: np.ndarray, fg: np.ndarray, x: int, y: int, rotation: floa
                 crop_bg[:, :, c] = (1.0 - alpha_scale) * crop_bg[:, :, c] + alpha_scale * crop_ov[:, :, c]
 
 # 全局预加载
-FRUIT_IMAGES = load_shuiguo_imgs()
+
 MULTI_FRUIT_IMAGES = load_duo_shuiguo_imgs()
 BOMB_IMAGES = load_zhadan_imgs()
 BLADE_IMAGES = load_daoguang_imgs()
