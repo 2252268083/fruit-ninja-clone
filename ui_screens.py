@@ -235,11 +235,22 @@ def jiesuan_ui(cap, game_obj) -> str:
                 config.add_cn_text('🏆 玩家二获胜！', (config.WINDOW_WIDTH//2 - 170, 200), 50, (100, 200, 255))
             else:
                 config.add_cn_text('🤝 双方平局！', (config.WINDOW_WIDTH//2 - 150, 200), 50, (240, 240, 240))
+            
             config.add_cn_text(f'玩家一: {game_obj.p1.score}分   玩家二: {game_obj.p2.score}分', (config.WINDOW_WIDTH//2 - 230, 280), 30, (200, 200, 200))
+            cal1 = game_obj.p1.get_calories()#计算玩家一卡路里
+            cal2 = game_obj.p2.get_calories()#计算玩家一卡路里
+            config.add_cn_text(f' 玩家一消耗: {cal1:.1f} 卡路里   玩家二消耗: {cal2:.1f} 卡路里', (config.WINDOW_WIDTH//2 - 290, 330), 26, (255, 150, 50))
+
+
         else:
             config.add_cn_text(f'本次得分: {game_obj.score}', (config.WINDOW_WIDTH//2 - 150, 180), 50, (0, 255, 255))
             if getattr(game_obj, 'game_over_reason', None):
                 config.add_cn_text(game_obj.game_over_reason, (config.WINDOW_WIDTH//2 - 160, 260), 30, (255, 100, 100))
+            
+            cal = game_obj.get_calories()
+            # Y坐标设为 320，刚好填补中间的空白
+            config.add_cn_text(f' 本局累计舒展肩颈，共消耗热量：{cal:.1f} 卡路里', (config.WINDOW_WIDTH//2 - 280, 320), 28, (255, 150, 50))
+
 
         #延迟显示选项
         if time.time() - start_t > wait_s:

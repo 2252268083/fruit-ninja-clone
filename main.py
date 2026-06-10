@@ -72,7 +72,7 @@ def main():#游戏的主函数
                 rgb_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)#模型要RGB的
                 lm_list, _ = vision_engine.detect_hands(rgb_img)#找手
                 
-                #防串线算法（写了好久终于不乱飞了）
+                #防串线算法
                 #主要是怕两只手交叉的时候认错
                 if not lm_list:#没找到手
                     for i in range(max_shou):
@@ -107,6 +107,13 @@ def main():#游戏的主函数
                             fenpei_hao[id(h)] = best_i
                             yong_le_de.add(best_i)
                             sx, sy = pinghua_qis[best_i].smooth(h['rx'], h['ry'])#平滑一下
+                            #新增卡路里计算
+                            if len(dao_trails[best_i])>0:#如果有滑动
+                                last_pt = dao_trails[best_i][-1]#上一帧的坐标点
+                                dist = math.hypot(sx - last_pt[0],sy-last_pt[1])#勾股定理计算移动距离
+                                game.add_distance(dist , best_i,max_shou)#加入总时长
+
+
                             dao_trails[best_i].append((sx, sy))#存进轨迹里
                             last_hands[best_i] = (h['rx'], h['ry'])#更新一下这只手的位置
                         else:

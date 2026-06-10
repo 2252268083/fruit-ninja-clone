@@ -12,6 +12,11 @@ class my_wanjia:
     # 玩家类，存分数的
     def __init__(self):
         self.score = 0
+        self.distance = 0.0 #记录玩家手的挥动总位移
+    def get_calories(self):#计算卡路里
+        return self.distance * 0.0005
+
+
 
 class my_shuiguo: # 定义单个水果的属性和行为
     # 简单的单个水果
@@ -355,6 +360,9 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
         
         self.consec_bombs = 0 # 连续生成炸弹的计数器
         self.max_consec_bombs = 2 # 最大连续生成炸弹数，防止满屏都是炸弹
+
+        #计算单手或者双手挥动的距离
+        self.total_distance = 0.0 #单手/双手总挥动的距离
         
         # 双人PK模式专用变量
         self.p1 = my_wanjia() # 玩家1
@@ -572,3 +580,16 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
                 config.add_cn_text(self.game_over_reason, (half - 180, cy - 40), font_size=30, color=(255, 255, 255))
                 config.add_cn_text(f'最终总得分: {self.score}', (half - 130, cy + 30), font_size=34, color=(0, 255, 255))
                 config.add_cn_text('按 R 重新开始 | 按 Q 退出到菜单', (half - 230, cy + 110), font_size=26, color=(190, 190, 190))
+    
+    
+    def get_calories(self):
+        return self.total_distance * 0.0005
+    
+    def add_distance (self,dist,hand_idx,max_shou):
+        if self.mode == 'pk':
+            if hand_idx < (max_shou // 2):
+                self.p1.distance += dist
+            else:
+                self.p2.distance +=dist
+        else:
+            self.total_distance += dist
