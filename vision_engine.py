@@ -35,10 +35,87 @@ def init_shoushi_det(max_hands: int) -> _mp_vis.HandLandmarker:#标注最后返�
     )
     return _mp_vis.HandLandmarker.create_from_options(opts)
 
+
+
+def rebuild_detector(det_conf, pres_conf, track_conf):
+    global hand_det
+
+    try:
+        hand_det.close()
+    except:
+        pass
+
+    opts = _mp_vis.HandLandmarkerOptions(
+        base_options=_mp_py.BaseOptions(
+            model_asset_path=_real_task_path
+        ),
+        running_mode=_RunMode.VIDEO,
+        num_hands=max_shou,
+
+        min_hand_detection_confidence=det_conf,
+        min_hand_presence_confidence=pres_conf,
+        min_tracking_confidence=track_conf,
+    )
+
+    hand_det = _mp_vis.HandLandmarker.create_from_options(opts)
+
+
 #配置文件里读取最大手部数量 默认4个
 max_shou = config.SETTINGS["ai"].get("max_hands", 4)#默认值是4
 hand_det: _mp_vis.HandLandmarker = init_shoushi_det(max_shou) #变量类型注解 hand_det=init_....
 start_ns: int = time.perf_counter_ns()
+hand_det: _mp_vis.HandLandmarker = init_shoushi_det(max_shou)
+
+start_ns: int = time.perf_counter_ns()
+
+# =====================
+# 环境自适应配置
+# =====================
+
+VISION_MODE = "NORMAL"
+
+NORMAL_CONFIG = {
+    "det": 0.25,
+    "pres": 0.25,
+    "track": 0.35
+}
+
+BOOST_CONFIG = {
+    "det": 0.15,
+    "pres": 0.15,
+    "track": 0.20
+}
+
+def toggle_environment_mode():
+    global VISION_MODE
+
+    if VISION_MODE == "NORMAL":
+
+        rebuild_detector(
+            BOOST_CONFIG["det"],
+            BOOST_CONFIG["pres"],
+            BOOST_CONFIG["track"]
+        )
+
+        VISION_MODE = "BOOST"
+
+        my_log.info("环境增强模式开启")
+
+    else:
+
+        rebuild_detector(
+            NORMAL_CONFIG["det"],
+            NORMAL_CONFIG["pres"],
+            NORMAL_CONFIG["track"]
+        )
+
+        VISION_MODE = "NORMAL"
+
+        my_log.info("环境增强模式关闭")
+
+
+def get_mode():
+    return VISION_MODE
 
 def get_now_ms() -> int:
     #mp要求的时间戳必须是严格递增的 不然直接崩溃

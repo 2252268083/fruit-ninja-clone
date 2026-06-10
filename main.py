@@ -158,10 +158,30 @@ def main():#游戏的主函数
                 game.update(dao_trails)#检测切到没
                 game.check_collisions(dao_trails)#刷水果和判断掉下去没
                 game.draw(frame)#把东西画上去
-                
+                mode_name = "增强" if vision_engine.get_mode() == "BOOST" else "正常"
+                config.add_cn_text(
+                  f"视觉模式：{mode_name}",
+                      (40, 90),   # 往下移，避开得分区域
+                      font_size=28,
+                      color=(255, 255, 0),
+                      bg_color=(0, 0, 0)
+                  )
+                config.add_cn_text(
+                    "按 C 键切换环境模式",
+                       (40, 130),
+                       font_size=22,
+                       color=(200, 200, 200),
+                       bg_color=None
+                   )
                 config.flush_cn_texts(frame)#把中文一起画了
+
                 cv2.imshow('Swift-Fruit-Slice', frame)#显示画面
-                
+
+
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('c'):
+                    vision_engine.toggle_environment_mode()
+
                 #按Q退出
                 if cv2.waitKey(1) & 0xFF == ord('q'): 
                     is_playing = False
