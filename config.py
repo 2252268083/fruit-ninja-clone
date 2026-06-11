@@ -184,7 +184,7 @@ if SUIGUO_ZHUTI == "ads":
     FRUIT_IMAGES = load_dynamic_ads(
         SETTINGS["paths"]["assets_dir"],
         "ads",
-        scale=SETTINGS["game"].get("ads_scale", 0.75)
+        scale=SETTINGS.get("ads", {}).get("scale", SETTINGS["game"].get("ads_scale", 0.75))
     )
 
     print("广告素材加载成功：", FRUIT_IMAGES.keys())
@@ -219,7 +219,9 @@ def load_shuiguo_imgs():
 
     return imgs
 
-MULTI_FRUIT_IMAGES = load_shuiguo_imgs()
+if SUIGUO_ZHUTI != "ads":
+    FRUIT_IMAGES = load_shuiguo_imgs()
+
 def load_duo_shuiguo_imgs():
     # 西瓜和火龙果这种能切成好几块的
     imgs = {}

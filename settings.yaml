@@ -9,7 +9,20 @@ game:
   window_width: 1280    # 游戏渲染窗口宽度
   window_height: 720    # 游戏渲染窗口高度
   spawn_interval: 20    # 水果生成的间隔时间（帧数），数值越小，水果弹出越快越密集
-  max_on_screen: 12     # 屏幕上允许同时存在的最大水果/炸弹数量
+  max_on_screen: 12 
+  # 基础生成间隔（帧）
+  spawn_interval: 12
+  # 最小生成间隔
+  min_spawn_interval: 4
+  # 初始屏幕最大物体数
+  max_on_screen: 15
+  # 最大允许物体数上限
+  max_on_screen_cap: 30
+  # 每隔多少秒提升一次难度
+  difficulty_step_time: 10
+  # PK模式总时间
+  total_time: 15
+
 
   fruit_theme: "ads"  # 把 default 改成 ads 即可
 ai:
@@ -24,4 +37,4 @@ paths:
 ads:
   enabled: true
   folder: "ads"    # 文件夹名
-  scale: 0.46      # 想要多大改这里，0.75就是75%
+  scale: 0.35      # 想要多大改这里，0.75就是75%

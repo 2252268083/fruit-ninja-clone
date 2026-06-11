@@ -346,14 +346,31 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
         self.max_combo = 0 # 本局最大连击数
         
         self.spawn_timer = 0 # 水果生成计时器
-        self.spawn_interval = config.SETTINGS["game"].get("spawn_interval", 12) # 水果生成间隔
-        
+        self.game_start_time = time.time()
+        self.base_spawn_interval = config.SETTINGS["game"].get("spawn_interval", 12) # 水果生成间隔
+        self.spawn_interval = self.base_spawn_interval
+        # self.min_spawn_interval = 4
+        self.min_spawn_interval = config.SETTINGS["game"].get("min_spawn_interval", 4)#（改成可以读取数据）
+
+
         self.game_over = False # 游戏是否结束
         self.game_over_reason = "" # 游戏结束原因
         self.max_missed = 15 # 最大允许漏掉数
         self.max_bombs_hit = 4 # 最大允许碰到炸弹数
         
-        self.max_on_screen = config.SETTINGS["game"].get("max_on_screen", 15) # 屏幕上最多有多少个物体
+
+
+
+
+
+        self.base_max_on_screen = config.SETTINGS["game"].get("max_on_screen", 15) # 屏幕上最多有多少个物体
+        self.max_on_screen = self.base_max_on_screen
+        # self.max_on_screen_cap = 30
+        self.max_on_screen_cap = config.SETTINGS["game"].get("max_on_screen_cap", 30)#改成可调配置
+        self.difficulty_step_time = config.SETTINGS["game"].get("difficulty_step_time", 10)
+
+
+
         self.bomb_chance = 0.22 # 生成炸弹的概率
         self.deadly_chance = 0.25 # 生成致命炸弹的概率
         self.multi_chance = 0.15 # 生成多块水果的概率
@@ -368,10 +385,27 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
         self.p1 = my_wanjia() # 玩家1
         self.p2 = my_wanjia() # 玩家2
         self.start_time = time.time() # PK模式开始时间
-        self.total_time = config.SETTINGS["game"].get("total_time", 15)
+        self.total_time = config.SETTINGS["game"].get("total_time", 30)
         self.winner = '' # 获胜者
         
         self.suiji_shengcheng() # 初始化时就生成第一波水果
+
+
+
+    def update_difficulty(self):
+        elapsed = time.time() - self.game_start_time
+        level = int(elapsed // self.difficulty_step_time)
+
+        self.spawn_interval = max(
+        self.min_spawn_interval,
+        self.base_spawn_interval - level
+        )
+
+        self.max_on_screen = min(
+        self.max_on_screen_cap,
+        self.base_max_on_screen + level * 2
+        )
+
 
     def get_time_left(self) -> float: # 获取PK模式的剩余时间
         return max(0.0, self.total_time - (time.time() - self.start_time))
@@ -416,12 +450,18 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
             return
 
         # --- 游戏物体的生成 ---
+        self.update_difficulty()
         self.spawn_timer += 1
         if self.spawn_timer >= self.spawn_interval: # 如果达到了生成间隔
             self.spawn_timer = 0
             if len(self.fruits) + len(self.multi_fruits) + len(self.bombs) < self.max_on_screen:
                 # 每次多丢几个，不然太无聊了
-                for _ in range(random.randint(2, 4)):
+                elapsed = time.time() - self.game_start_time
+                level = int(elapsed // 10)
+                
+                #这样前期可能一次生成 2~3 个，后面会慢慢变成 5~8 个,逐步增加
+                batch_count = min(2 + level, 8)
+                for _ in range(random.randint(2, batch_count)):
                     self.suiji_shengcheng()
 
         # --- 游戏物体的状态更新与越界判断 ---
