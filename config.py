@@ -135,7 +135,9 @@ def flush_cn_texts(frame: np.ndarray):#解决了中文不能绘画上去的问�
 
 
 
-def load_dynamic_ads(base_dir, theme_folder="ads", scale=0.7):
+def load_dynamic_ads(base_dir, theme_folder="ads", scale=0.7, custom_scales=None):
+    if custom_scales is None:
+        custom_scales = {}
     ads_path = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         base_dir, "sucai", theme_folder
@@ -168,10 +170,12 @@ def load_dynamic_ads(base_dir, theme_folder="ads", scale=0.7):
             my_log.warning(f"素材缺失: {name} 缺少切开部分，跳过该素材")
             continue
 
-        if scale != 1.0:
-            img_w = cv2.resize(img_w, (0, 0), fx=scale, fy=scale)
-            img_l = cv2.resize(img_l, (0, 0), fx=scale, fy=scale)
-            img_r = cv2.resize(img_r, (0, 0), fx=scale, fy=scale)
+        item_scale = custom_scales.get(name, scale)
+        my_log.info(f"广告 [{name}] 准备缩放，使用的比例是: {item_scale}") # 记录缩放比例
+        if item_scale != 1.0:
+            img_w = cv2.resize(img_w, (0, 0), fx=item_scale, fy=item_scale)
+            img_l = cv2.resize(img_l, (0, 0), fx=item_scale, fy=item_scale)
+            img_r = cv2.resize(img_r, (0, 0), fx=item_scale, fy=item_scale)
 
         loaded_imgs[name] = {'whole': img_w, 'left': img_l, 'right': img_r}
 
@@ -181,10 +185,12 @@ def load_dynamic_ads(base_dir, theme_folder="ads", scale=0.7):
 SUIGUO_ZHUTI = SETTINGS["game"].get("fruit_theme", "default")
 
 if SUIGUO_ZHUTI == "ads":
+    my_log.info(f"读取到的ads配置: {SETTINGS.get('ads', {})}") # 记录广告配置
     FRUIT_IMAGES = load_dynamic_ads(
         SETTINGS["paths"]["assets_dir"],
         "ads",
-        scale=SETTINGS.get("ads", {}).get("scale", SETTINGS["game"].get("ads_scale", 0.75))
+        scale=SETTINGS.get("ads", {}).get("scale", SETTINGS["game"].get("ads_scale", 0.75)),
+        custom_scales=SETTINGS.get("ads", {}).get("custom_scales", {})
     )
 
     print("广告素材加载成功：", FRUIT_IMAGES.keys())

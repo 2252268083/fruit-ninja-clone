@@ -64,9 +64,6 @@ def rebuild_detector(det_conf, pres_conf, track_conf):
 max_shou = config.SETTINGS["ai"].get("max_hands", 4)#默认值是4
 hand_det: _mp_vis.HandLandmarker = init_shoushi_det(max_shou) #变量类型注解 hand_det=init_....
 start_ns: int = time.perf_counter_ns()
-hand_det: _mp_vis.HandLandmarker = init_shoushi_det(max_shou)
-
-start_ns: int = time.perf_counter_ns()
 
 # =====================
 # 环境自适应配置

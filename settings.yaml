@@ -24,7 +24,7 @@ game:
   total_time: 15
 
 
-  fruit_theme: "ads"  # 把 default 改成 ads 即可
+  fruit_theme: "ads"  # 把 default 改成 ads 即可  ads是广告图标位 default普通游玩
 ai:
   max_hands: 6          # AI 最多同时识别的手部数量（影响性能和刀光数量）
 
@@ -37,4 +37,8 @@ paths:
 ads:
   enabled: true
   folder: "ads"    # 文件夹名
-  scale: 0.35      # 想要多大改这里，0.75就是75%
+  scale: 0.36      # 想要多大改这里，0.75就是75%（这个是统一的比例）
+  # 假如某个产品过大或过小，取消下面的注释并修改名字，就可以单独调整（没写在里面的还是按上面的统一比例）
+  custom_scales:
+    shouji: 0.23     # 比如把叫 shouji.png 的图片缩放比例单独设为 0.15
+    shoubiao: 0.30   # 比如把叫 shoubiao.png 的图片缩放比例单独设为 0.08
