@@ -21,7 +21,7 @@ game:
   # 每隔多少秒提升一次难度
   difficulty_step_time: 10
   # PK模式总时间
-  total_time: 15
+  total_time: 30
 
 
   fruit_theme: "ads"  # 把 default 改成 ads 即可  ads是广告图标位 default普通游玩
@@ -37,8 +37,11 @@ paths:
 ads:
   enabled: true
   folder: "ads"    # 文件夹名
-  scale: 0.36      # 想要多大改这里，0.75就是75%（这个是统一的比例）
+  scale: 0.49      # 想要多大改这里，0.75就是75%（这个是统一的比例）
   # 假如某个产品过大或过小，取消下面的注释并修改名字，就可以单独调整（没写在里面的还是按上面的统一比例）
   custom_scales:
     shouji: 0.23     # 比如把叫 shouji.png 的图片缩放比例单独设为 0.15
     shoubiao: 0.30   # 比如把叫 shoubiao.png 的图片缩放比例单独设为 0.08
+    crw : 0.30
+    bing : 0.23
+    lachang : 0.30

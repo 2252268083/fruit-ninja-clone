@@ -28,7 +28,7 @@ def main():#游戏的主函数
     #设一下摄像头的长宽
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.SETTINGS["camera"]["width"])
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.SETTINGS["camera"]["height"])
-    cv2.namedWindow('Swift-Fruit-Slice')#搞个窗口
+    cv2.namedWindow('Swift-Fruit-Slice', cv2.WINDOW_NORMAL)#搞个窗口，支持自适应调整大小
     
     config.play_bgm()#游戏一开始就把背景音乐放起来
 
