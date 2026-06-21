@@ -13,7 +13,7 @@ _mp_vis = mp_vision
 _RunMode = mp_vision.RunningMode
 
 _TASK_DIRS = [
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), config.SETTINGS["paths"]["models_dir"], config.SETTINGS["paths"]["model_name"]),#找配置
+    os.path.join(config.get_base_dir(), config.SETTINGS["paths"]["models_dir"], config.SETTINGS["paths"]["model_name"]),#找配置
     '/mnt/user-data/uploads/hand_landmarker.task',#假如是服务器的路径
 ]
 _real_task_path = next((p for p in _TASK_DIRS if os.path.exists(p)), None)#检查是否有文件

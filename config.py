@@ -1,10 +1,40 @@
 import os
+import sys
 import cv2
 import yaml
 import random
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from logger import my_log
+
+def get_exe_dir():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+def get_base_dir():
+    # 改为始终返回 exe 所在目录，这样游戏运行时就会去读外部的 assets 和 models
+    return get_exe_dir()
+
+def extract_resources():
+    # 如果是打包环境，并且外部没有 assets 和 models 文件夹，就从临时目录复制出来
+    if getattr(sys, 'frozen', False):
+        exe_dir = get_exe_dir()
+        meipass = sys._MEIPASS
+        import shutil
+        for d in ['assets', 'models']:
+            src = os.path.join(meipass, d)
+            dst = os.path.join(exe_dir, d)
+            if os.path.exists(src) and not os.path.exists(dst):
+                try:
+                    shutil.copytree(src, dst)
+                    my_log.info(f"成功释放资源文件夹到: {dst}")
+                except Exception as e:
+                    my_log.error(f"释放资源文件夹失败 {d}: {e}")
+
+# 在模块加载时就执行资源释放
+extract_resources()
+
 """
 加载配置文件 把各种内容读取到内存 把照片转成透明通道 超出部分裁剪 （照片的处理与读取）和背景音乐
 """
@@ -14,7 +44,7 @@ FRUIT_TYPES = []
 MULTI_FRUIT_TYPES = ['watermelon', 'dragonfruit']
 MULTI_FRUIT_IMAGES = {}
 # 找配置文件
-my_setting_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'settings.yaml')
+my_setting_file = os.path.join(get_exe_dir(), 'settings.yaml')
 
 def duqu_peizhi():#默认配置
     # 默认给个配置
@@ -139,7 +169,7 @@ def load_dynamic_ads(base_dir, theme_folder="ads", scale=0.7, custom_scales=None
     if custom_scales is None:
         custom_scales = {}
     ads_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
+        get_base_dir(),
         base_dir, "sucai", theme_folder
     )
     loaded_imgs = {}
@@ -202,7 +232,7 @@ else:
 
 def load_shuiguo_imgs():
     imgs = {}
-    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'sucai')
+    base_dir = os.path.join(get_base_dir(), SETTINGS["paths"]["assets_dir"], 'sucai')
     for name in FRUIT_TYPES:
         w_path = os.path.join(base_dir, f'{name}.png')
         if name == 'b1':
@@ -231,7 +261,7 @@ if SUIGUO_ZHUTI != "ads":
 def load_duo_shuiguo_imgs():
     # 西瓜和火龙果这种能切成好几块的
     imgs = {}
-    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'sucai')
+    base_dir = os.path.join(get_base_dir(), SETTINGS["paths"]["assets_dir"], 'sucai')
     suofang = 0.5
     
     # 1. 西瓜
@@ -269,7 +299,7 @@ def load_duo_shuiguo_imgs():
 
 def load_guozhi_imgs():#果汁特效
     imgs = {}
-    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'texiao')
+    base_dir = os.path.join(get_base_dir(), SETTINGS["paths"]["assets_dir"], 'texiao')
     for i in range(1, 5):
         name = f'guozhi{i}'
         p = os.path.join(base_dir, f'{name}.png')
@@ -281,7 +311,7 @@ def load_guozhi_imgs():#果汁特效
 
 def load_zhadan_imgs():#炸弹的
     imgs = {}
-    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'zhadan')
+    base_dir = os.path.join(get_base_dir(), SETTINGS["paths"]["assets_dir"], 'zhadan')
     for key, fname, sc in [('bomb1', 'boom1.png', 1.0), ('bomb2', 'boom2.png', 1.0), ('explosion1', 'zha01.png', 2.0), ('explosion2', 'zha02.png', 2.0)]:
         p = os.path.join(base_dir, fname)
         if os.path.exists(p):
@@ -292,7 +322,7 @@ def load_zhadan_imgs():#炸弹的
 
 def load_daoguang_imgs():#刀的皮肤
     imgs = {}
-    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'daoguang')
+    base_dir = os.path.join(get_base_dir(), SETTINGS["paths"]["assets_dir"], 'daoguang')
     for name in ['dao1', 'dao2']:
         p = os.path.join(base_dir, f'{name}.png')
         if os.path.exists(p):
@@ -303,7 +333,7 @@ def load_daoguang_imgs():#刀的皮肤
 
 def load_combo_imgs():#特效的光效
     imgs = {}
-    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'texiao')
+    base_dir = os.path.join(get_base_dir(), SETTINGS["paths"]["assets_dir"], 'texiao')
     for name in ['combo1', 'combo2', 'combo3']:
         p = os.path.join(base_dir, f'{name}.png')
         if os.path.exists(p):
@@ -315,7 +345,7 @@ def load_combo_imgs():#特效的光效
 def load_yinxiao():#读取打击特效时的音效
     sfx = {}
     if not HAS_SOUND: return sfx
-    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"], 'yinxiao')
+    base_dir = os.path.join(get_base_dir(), SETTINGS["paths"]["assets_dir"], 'yinxiao')
     try:
         sp = os.path.join(base_dir, 'qieshuiguoyinxiao.mp3')
         if os.path.exists(sp): sfx['slice'] = pygame.mixer.Sound(sp)
@@ -329,7 +359,7 @@ def play_bgm():#播放背景音乐
     if not HAS_SOUND: return
     #从配置里拿音乐名字
     bgm_name = SETTINGS["paths"].get("bgm_name", "1.mp3")
-    base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), SETTINGS["paths"]["assets_dir"])
+    base_dir = os.path.join(get_base_dir(), SETTINGS["paths"]["assets_dir"])
     bgm_path = os.path.join(base_dir, bgm_name)
     try:
         if os.path.exists(bgm_path):
