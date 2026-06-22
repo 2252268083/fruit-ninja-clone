@@ -64,6 +64,7 @@ def main():#游戏的主函数
         
         # --- 3. 开始玩 ---
         is_playing = True
+        frame_counter = 0
         while is_playing:#单局循环
             game = game_core.Game(selected_blade=my_dao, mode=moshi)#弄个新游戏
             
@@ -77,7 +78,10 @@ def main():#游戏的主函数
             last_hands = [None] * max_shou
 
             while not game.game_over:#没死就一直循环
-                ok, frame = cap.read()#拿一张图
+                # 连续抓取，清空 OpenCV 积压的旧帧（快递柜）
+                for _ in range(3):
+                    cap.grab()
+                ok, frame = cap.read()#读取最新的一帧
                 if not ok: break
                 
                 frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))#缩放到固定大小
@@ -88,8 +92,15 @@ def main():#游戏的主函数
                 if moshi == 'pk':
                     cv2.line(frame, (640, 0), (640, 720), (100, 100, 100), 2)
                 
-                rgb_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)#模型要RGB的
-                lm_list, _ = vision_engine.detect_hands(rgb_img)#找手
+                # 降低摄像头分辨率（如 320x240）以加快推理
+                infer_frame = cv2.resize(frame, (320, 240))
+                rgb_img = cv2.cvtColor(infer_frame, cv2.COLOR_BGR2RGB)
+                
+                # 跳帧推理：只在偶数帧进行 MediaPipe 推理，奇数帧复用上一帧的检测结果
+                # 这能直接砍掉一半的计算量
+                if frame_counter % 2 == 0:
+                    lm_list, _ = vision_engine.detect_hands(rgb_img)
+                frame_counter += 1
                 
                 #防串线算法
                 #主要是怕两只手交叉的时候认错
