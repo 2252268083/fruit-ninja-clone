@@ -1,12 +1,4 @@
 import os
-"""
-整个游戏最开始跑的地方
-主要就是打开摄像头 调出选模式和刀光的界面
-然后再不停地抓画面 找手的位置 划线切水果
-"""
-import cv2
-import math
-from collections import deque
 import warnings
 
 #去掉警告看着烦
@@ -15,20 +7,46 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['GLOG_minloglevel'] = '2'
 warnings.filterwarnings('ignore', category=UserWarning, module='google.protobuf.symbol_database')
 
-import config
-import math_utils
-import vision_engine
-import game_core
-from logger import my_log
-from ui_screens import xuanze_moshi_ui, xuanze_daoguang_ui, jiesuan_ui
+import cv2
+import numpy as np
 
 def main():#游戏的主函数
+    # ---------------- 优化启动速度：立即显示窗口 ----------------
+    cv2.namedWindow('Swift-Fruit-Slice', cv2.WINDOW_NORMAL)#搞个窗口，支持自适应调整大小
+    splash = np.zeros((720, 1280, 3), dtype=np.uint8)
+    cv2.putText(splash, "Loading Game and AI Models... Please Wait.", (200, 360), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 255), 3)
+    cv2.imshow('Swift-Fruit-Slice', splash)
+    cv2.waitKey(1) # 刷新窗口，立刻显示到屏幕上
+
+    # 延迟加载那些特别慢的库（比如 mediapipe 和 pygame 音频）
+    import math
+    from collections import deque
+    import config
+    import math_utils
+    import vision_engine
+    import game_core
+    from logger import my_log
+    from ui_screens import xuanze_moshi_ui, xuanze_daoguang_ui, jiesuan_ui
+    # ------------------------------------------------------------
+
     my_cam = config.SETTINGS["camera"]["index"]#从配置里拿摄像头的序号
-    cap = cv2.VideoCapture(my_cam)#打开摄像头
-    #设一下摄像头的长宽
+    
+    # 优化摄像头启动速度：Windows下默认后端可能卡死5-10秒，优先尝试 DirectShow
+    if os.name == 'nt':
+        cap = cv2.VideoCapture(my_cam, cv2.CAP_DSHOW)
+        if not cap.isOpened():
+            cap = cv2.VideoCapture(my_cam)
+    else:
+        cap = cv2.VideoCapture(my_cam)
+        
+    #设一下摄像头的长宽与帧率
+    # 强制使用 MJPG 视频流格式（解决某些摄像头高分辨率下掉帧/卡顿的问题）
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+    # 请求 30 帧或 60 帧的高帧率
+    cap.set(cv2.CAP_PROP_FPS, 60)
+    
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.SETTINGS["camera"]["width"])
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.SETTINGS["camera"]["height"])
-    cv2.namedWindow('Swift-Fruit-Slice', cv2.WINDOW_NORMAL)#搞个窗口，支持自适应调整大小
     
     config.play_bgm()#游戏一开始就把背景音乐放起来
 
@@ -63,7 +81,8 @@ def main():#游戏的主函数
                 if not ok: break
                 
                 frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))#缩放到固定大小
-                frame = cv2.flip(frame, 1)#像照镜子一样翻转一下
+                if config.SETTINGS["camera"].get("mirror", True):
+                    frame = cv2.flip(frame, 1)#像照镜子一样翻转一下
                 
                 #如果是PK中间画条线
                 if moshi == 'pk':

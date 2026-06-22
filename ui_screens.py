@@ -45,7 +45,8 @@ def xuanze_moshi_ui(cap) -> str:
             return 'single'#读不到图就默认单手吧
             
         frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
-        frame = cv2.flip(frame, 1)
+        if config.SETTINGS["camera"].get("mirror", True):
+            frame = cv2.flip(frame, 1)
         
         #搞个半透明遮罩看起来高级点
         zhezhao = frame.copy()
@@ -133,7 +134,8 @@ def xuanze_daoguang_ui(cap) -> str:
         if not ok: return 'dao1'
         
         frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
-        frame = cv2.flip(frame, 1)
+        if config.SETTINGS["camera"].get("mirror", True):
+            frame = cv2.flip(frame, 1)
         
         zhezhao = frame.copy()
         cv2.rectangle(zhezhao, (0, 0), (config.WINDOW_WIDTH, config.WINDOW_HEIGHT), (0, 0, 0), -1)
@@ -219,7 +221,8 @@ def jiesuan_ui(cap, game_obj) -> str:
         if not ok: break
         
         frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
-        frame = cv2.flip(frame, 1)
+        if config.SETTINGS["camera"].get("mirror", True):
+            frame = cv2.flip(frame, 1)
         
         zhezhao = frame.copy()
         cv2.rectangle(zhezhao, (0, 0), (config.WINDOW_WIDTH, config.WINDOW_HEIGHT), (0, 0, 0), -1)

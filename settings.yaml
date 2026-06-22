@@ -1,9 +1,10 @@
 # 这是游戏的全局配置文件，你可以随时修改以下参数以改变游戏行为
 
 camera:
-  index: 0     # 摄像头编号，0代表默认摄像头，外接摄像头可以改为1"http://192.168.3.135:8081"
+  index: 1     # 摄像头编号，0代表默认摄像头，外接摄像头可以改为1"http://192.168.3.135:8081"
   width: 1280       # 摄像头捕获画面宽度
   height: 720       # 摄像头捕获画面高度
+  mirror: true      # 画面镜像开关，true为开启镜像（像照镜子一样），false为关闭镜像
 
 game:
   window_width: 1280    # 游戏渲染窗口宽度
@@ -24,7 +25,7 @@ game:
   total_time: 30
 
 
-  fruit_theme: "ads"  # 把 default 改成 ads 即可  ads是广告图标位 default普通游玩
+  fruit_theme: "default"  # 把 default 改成 ads 即可  ads是广告图标位 default普通游玩
 ai:
   max_hands: 6          # AI 最多同时识别的手部数量（影响性能和刀光数量）
 

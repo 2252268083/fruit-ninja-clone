@@ -16,25 +16,6 @@ def get_base_dir():
     # 改为始终返回 exe 所在目录，这样游戏运行时就会去读外部的 assets 和 models
     return get_exe_dir()
 
-def extract_resources():
-    # 如果是打包环境，并且外部没有 assets 和 models 文件夹，就从临时目录复制出来
-    if getattr(sys, 'frozen', False):
-        exe_dir = get_exe_dir()
-        meipass = sys._MEIPASS
-        import shutil
-        for d in ['assets', 'models']:
-            src = os.path.join(meipass, d)
-            dst = os.path.join(exe_dir, d)
-            if os.path.exists(src) and not os.path.exists(dst):
-                try:
-                    shutil.copytree(src, dst)
-                    my_log.info(f"成功释放资源文件夹到: {dst}")
-                except Exception as e:
-                    my_log.error(f"释放资源文件夹失败 {d}: {e}")
-
-# 在模块加载时就执行资源释放
-extract_resources()
-
 """
 加载配置文件 把各种内容读取到内存 把照片转成透明通道 超出部分裁剪 （照片的处理与读取）和背景音乐
 """
@@ -49,7 +30,7 @@ my_setting_file = os.path.join(get_exe_dir(), 'settings.yaml')
 def duqu_peizhi():#默认配置
     # 默认给个配置
     mo_ren = {
-        "camera": {"index": 0, "width": 1280, "height": 720},
+        "camera": {"index": 0, "width": 1280, "height": 720, "mirror": True},
         "game": {
             "window_width": 1280, 
             "window_height": 720,
