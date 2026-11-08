@@ -9,7 +9,7 @@ import time
 import config
 
 class my_wanjia:
-    # 玩家类，存分数的
+    # 玩家类，存分数
     def __init__(self):
         self.score = 0
         self.distance = 0.0 #记录玩家手的挥动总位移
@@ -90,16 +90,15 @@ class my_shuiguo: # 定义单个水果的属性和行为
                 })
 
     def is_out(self): # 判断水果是否已经掉出屏幕外
-        # 看看是不是掉出屏幕下面了
+
         if not self.is_cut:
             return self.y > config.WINDOW_HEIGHT + 150 # 完整水果的判断
         return all(p['alpha'] <= 0 or p['y'] > config.WINDOW_HEIGHT + 150 for p in self.cut_pieces) # 所有碎片都掉出去了
 
     def check_hit(self, trail): # 检查是否被刀光轨迹切中
         if self.is_cut or len(trail) < 2: return False # 如果已切开或轨迹点太少，则不判断
-        
-        # 简化的碰撞检测：只判断刀光轨迹上的点是否在水果的半径内
-        # TODO: 以后试试算线段和圆的交点，现在只算点到圆心的距离，偶尔会漏切
+
+        # TODO: 算点到圆心的距离，偶尔会漏切
         for pt in list(trail)[-15:]: # 取最新的15个轨迹点进行检测
             if pt and math.hypot(pt[0] - self.x, pt[1] - self.y) < self.radius * 0.85: # 勾股定理算距离
                 return True # 如果距离小于半径，则认为切中

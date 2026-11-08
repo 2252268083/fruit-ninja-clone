@@ -4,24 +4,24 @@ from collections import deque
 手势的防抖算法
 """
 class FingerSmoother:
-    #之前坐标跳来跳去 加了平滑器
+
     def __init__(self, method='ewma', alpha=0.5, buffer_size=5, adaptive=True):
         self.method = method
         self.alpha = alpha
         self.adaptive = adaptive
         self.smoothed_pos = None
         self.prev_raw_pos = None
-        #buffer主要是给moving_avg用的 可用 kalman（复杂）暂时没用到
+
         self.position_buffer = deque(maxlen=buffer_size)
 
     def _speed(self, x, y):
-        #算一下手挥动的速度
+        #手挥动的速度
         if self.prev_raw_pos is None:
             return 0
         return math.hypot(x - self.prev_raw_pos[0], y - self.prev_raw_pos[1])
 
     def _adaptive_alpha(self, speed):
-        #速度快的时候不能平滑太多 不然刀光跟不上手
+
         if speed > 50: return 0.85
         if speed > 20: return 0.55
         return self.alpha

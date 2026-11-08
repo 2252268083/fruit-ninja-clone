@@ -13,3 +13,8 @@ dist/
 备份/
 *txt
 *docx
+
+# 运行时日志与本地交付文档（不上传）
+logs/
+.screenshots/
+交付文档.md

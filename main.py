@@ -1,7 +1,6 @@
 import os
 import warnings
 
-#去掉警告看着烦
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['GLOG_minloglevel'] = '2'
@@ -11,14 +10,14 @@ import cv2
 import numpy as np
 
 def main():#游戏的主函数
-    # ---------------- 优化启动速度：立即显示窗口 ----------------
+    #优化启动速度：立即显示窗口
     cv2.namedWindow('Swift-Fruit-Slice', cv2.WINDOW_NORMAL)#搞个窗口，支持自适应调整大小
     splash = np.zeros((720, 1280, 3), dtype=np.uint8)
     cv2.putText(splash, "Loading Game and AI Models... Please Wait.", (200, 360), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 255), 3)
     cv2.imshow('Swift-Fruit-Slice', splash)
     cv2.waitKey(1) # 刷新窗口，立刻显示到屏幕上
 
-    # 延迟加载那些特别慢的库（比如 mediapipe 和 pygame 音频）
+    # 延迟加载那些特别慢的库
     import math
     from collections import deque
     import config
