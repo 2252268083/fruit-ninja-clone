@@ -30,7 +30,7 @@ class FingerSmoother:
         speed = self._speed(x, y)
         self.prev_raw_pos = (x, y)
         
-        #print(f"手速: {speed}")#调试用的 留着
+        #print(f"手速: {speed}")#调试用的 留着 
         
         if self.method == 'ewma':
             if self.smoothed_pos is None:

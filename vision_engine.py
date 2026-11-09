@@ -34,6 +34,19 @@ _real_task_path = next((p for p in _TASK_DIRS if os.path.exists(p)), None)
 # 从配置里读最大手数（默认4个）
 max_shou = config.SETTINGS["ai"].get("max_hands", 4)
 
+# ============================================================
+# 运行设备（委托）：auto = 优先 GPU，不可用自动退回 CPU
+# 注意：CPU/GPU 由 mediapipe 底层 TFLite 决定，切换只影响推理速度，不影响接口
+# ============================================================
+DELEGATE_PREF = str(config.SETTINGS["ai"].get("delegate", "auto")).lower()
+ACTIVE_DELEGATE = "CPU"   # 实际生效的设备（创建成功后写入）
+
+
+def get_delegate():
+    """返回实际生效的运行设备：CPU / GPU"""
+    return ACTIVE_DELEGATE
+
+
 start_ns: int = time.perf_counter_ns()
 
 # =====================
@@ -74,11 +87,21 @@ def _load_mediapipe():
         my_log.info("mediapipe 引擎加载完成")
 
 
-def _create_detector(det_conf, pres_conf, track_conf, num_hands):
-    """按给定参数创建一个 HandLandmarker"""
-    _load_mediapipe()
-    opts = _mp_vis.HandLandmarkerOptions(
-        base_options=_mp_py.BaseOptions(model_asset_path=_real_task_path),  # 模型文件
+def _delegate_order():
+    """按配置给出尝试顺序：auto -> GPU 再 CPU；gpu -> GPU 再 CPU（保底不崩）；cpu -> 只 CPU"""
+    if DELEGATE_PREF == "cpu":
+        return ["CPU"]
+    return ["GPU", "CPU"]
+
+
+def _build_options(delegate_name, det_conf, pres_conf, track_conf, num_hands):
+    """按指定运行设备构造 HandLandmarkerOptions"""
+    delegate = getattr(_mp_py.BaseOptions.Delegate, delegate_name)
+    return _mp_vis.HandLandmarkerOptions(
+        base_options=_mp_py.BaseOptions(
+            model_asset_path=_real_task_path,  # 模型文件
+            delegate=delegate,                 # CPU / GPU
+        ),
         running_mode=_RunMode.VIDEO,  # 运行模式
         num_hands=num_hands,          # 最大识别手数
         # 如果光线太暗或者背景太乱 检测容易断连 后续把这个阈值再调低点 或者加个自适应！！！
@@ -86,7 +109,29 @@ def _create_detector(det_conf, pres_conf, track_conf, num_hands):
         min_hand_presence_confidence=pres_conf,
         min_tracking_confidence=track_conf,
     )
-    return _mp_vis.HandLandmarker.create_from_options(opts)
+
+
+def _create_detector(det_conf, pres_conf, track_conf, num_hands):
+    """创建 HandLandmarker：优先 GPU，创建失败自动回退 CPU（不会因为没显卡而崩）"""
+    global ACTIVE_DELEGATE
+    _load_mediapipe()
+
+    fail_msgs = []
+    for name in _delegate_order():
+        try:
+            det = _mp_vis.HandLandmarker.create_from_options(
+                _build_options(name, det_conf, pres_conf, track_conf, num_hands)
+            )
+            ACTIVE_DELEGATE = name
+            my_log.info(f"手势识别运行设备：{name}"
+                        + ("（GPU 不可用，已自动回退）" if name == "CPU" and fail_msgs else ""))
+            return det
+        except Exception as e:
+            fail_msgs.append(f"{name}: {e}")
+            my_log.warning(f"手势识别 {name} 模式不可用，尝试下一种：{e}")
+
+    raise RuntimeError("创建手势检测器失败 -> " + " | ".join(fail_msgs))
+
 
 
 def ensure_init(progress=None):

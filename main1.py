@@ -1,7 +1,6 @@
 import os
 import warnings
 import threading
-import queue
 import time
 
 # 去掉警告看着烦
@@ -121,67 +120,125 @@ def _open_camera(idx):
     return cap
 
 
+# ======================== 采集线程 ========================
+class CaptureThread(threading.Thread):
+    """
+    只负责读摄像头，始终保存"最新一帧"。
+    以前读帧和推理在同一个循环里：推理 25~40ms/帧，摄像头却有 60fps，
+    缓冲区会越堆越多，画面和手势就会越来越延迟（感觉像卡住了）。
+    现在读帧独立成线程，每帧都取最新的，延迟恒定不累积。
+    """
+    def __init__(self, cap, display_width, display_height,
+                 infer_width=320, infer_height=240, mirror=True):
+        super().__init__(daemon=True)
+        self.cap = cap
+        self.disp_w = display_width
+        self.disp_h = display_height
+        self.infer_w = infer_width
+        self.infer_h = infer_height
+        self.mirror = mirror
+        self.running = True
+        self.fps = 0.0
+
+        self._lock = threading.Lock()
+        self._display = None   # 显示用大图（给主线程画游戏）
+        self._small = None     # 推理用小图（给视觉线程）
+        self._seq = 0          # 帧序号，主线程据此判断有没有新画面
+
+    def run(self):
+        count, t0 = 0, time.time()
+        while self.running:
+            ret, frame = self.cap.read()
+            if not ret:
+                time.sleep(0.005)
+                continue
+
+            if self.mirror:
+                frame = cv2.flip(frame, 1)
+
+            display = frame
+            if (frame.shape[1], frame.shape[0]) != (self.disp_w, self.disp_h):
+                display = cv2.resize(frame, (self.disp_w, self.disp_h))
+            small = cv2.resize(frame, (self.infer_w, self.infer_h))
+
+            with self._lock:
+                self._display = display
+                self._small = small
+                self._seq += 1
+
+            count += 1
+            if count % 30 == 0:   # 统计采集帧率
+                now = time.time()
+                self.fps = 30 / max(1e-6, now - t0)
+                t0 = now
+
+    def latest_display(self):
+        """返回 (最新显示帧副本, 帧序号)；还没有帧时返回 (None, -1)"""
+        with self._lock:
+            if self._display is None:
+                return None, -1
+            return self._display.copy(), self._seq
+
+    def latest_small(self):
+        """返回 (最新推理帧副本, 帧序号)"""
+        with self._lock:
+            if self._small is None:
+                return None, -1
+            return self._small.copy(), self._seq
+
+    def stop(self):
+        self.running = False
+
+
 # ======================== 视觉线程类 ========================
 class VisionThread(threading.Thread):
     """
-    独立线程：不断读取摄像头、缩放、推理，返回归一化手部坐标和显示帧。
+    独立线程：只做推理，永远取采集线程的"最新帧"，
+    算得慢也只是识别帧率低，不会拖慢画面、不会积压延迟。
     """
-    def __init__(self, cap, result_queue, infer_width=320, infer_height=240,
-                 display_width=1280, display_height=720, max_hands=4, mirror=True):
-        super().__init__()
-        self.cap = cap
-        self.result_queue = result_queue          # 存放 (hands_norm, frame_display)
-        self.infer_w = infer_width
-        self.infer_h = infer_height
-        self.disp_w = display_width
-        self.disp_h = display_height
+    def __init__(self, capture, max_hands=4):
+        super().__init__(daemon=True)
+        self.capture = capture
         self.max_hands = max_hands
-        self.mirror = mirror
         self.running = True
+        self.fps = 0.0
+
+        self._lock = threading.Lock()
+        self._hands = []      # 归一化食指指尖坐标 [(x, y), ...]
 
     def run(self):
         import vision_engine  # 延迟导入，避免阻塞主线程启动
         # 预热模型（第一次调用会加载，耗时但只一次）
-        dummy = np.zeros((self.infer_h, self.infer_w, 3), dtype=np.uint8)
-        vision_engine.detect_hands(dummy)
+        vision_engine.detect_hands(
+            np.zeros((self.capture.infer_h, self.capture.infer_w, 3), dtype=np.uint8))
 
+        last_seq = -1
+        count, t0 = 0, time.time()
         while self.running:
-            ret, frame = self.cap.read()
-            if not ret:
+            small, seq = self.capture.latest_small()
+            # 没有新画面（或还没采到帧）就等一下，避免重复推理同一帧
+            if small is None or seq == last_seq:
+                time.sleep(0.002)
                 continue
+            last_seq = seq
 
-            # 镜像翻转（与原来保持一致）
-            if self.mirror:
-                frame = cv2.flip(frame, 1)
-
-            # 1. 推理用的缩小帧
-            infer_frame = cv2.resize(frame, (self.infer_w, self.infer_h))
-            rgb = cv2.cvtColor(infer_frame, cv2.COLOR_BGR2RGB)
-
-            # 2. 执行推理（在子线程，不阻塞主界面）
+            rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
             lm_list, _ = vision_engine.detect_hands(rgb)
 
-            # 3. 提取归一化坐标（只取食指指尖，索引8）
-            hands_norm = []
-            if lm_list:
-                for lm in lm_list[:self.max_hands]:
-                    x = lm[8].x   # 0~1
-                    y = lm[8].y
-                    hands_norm.append((x, y))
+            # 只取食指指尖（索引8），归一化坐标 0~1
+            hands = [(lm[8].x, lm[8].y) for lm in (lm_list or [])[:self.max_hands]]
+            with self._lock:
+                self._hands = hands
 
-            # 4. 生成显示用的帧（缩放至窗口大小）
-            display_frame = cv2.resize(frame, (self.disp_w, self.disp_h))
+            count += 1
+            if count % 20 == 0:   # 统计识别帧率
+                now = time.time()
+                self.fps = 20 / max(1e-6, now - t0)
+                t0 = now
 
-            # 5. 放入队列（只保留最新数据，丢弃旧数据）
-            if self.result_queue.qsize() > 0:
-                try:
-                    self.result_queue.get_nowait()
-                except queue.Empty:
-                    pass
-            self.result_queue.put((hands_norm, display_frame))
-
-            # 避免忙等吃满CPU
-            time.sleep(0.001)
+    def get_hands(self):
+        with self._lock:
+            return list(self._hands)
 
     def stop(self):
         self.running = False
@@ -238,11 +295,26 @@ def main():
                         my_log.warning(f"配置的摄像头 index={my_cam} 打不开，已自动改用 index={idx}")
                         break
             if cap.isOpened():
+                cam_cfg = config.SETTINGS["camera"]
+                want_w = cam_cfg.get("width", 1280)
+                want_h = cam_cfg.get("height", 720)
+                want_fps = cam_cfg.get("fps", 60)
+
+                # 顺序：先格式(MJPG) → 再帧率 → 再分辨率，反了部分驱动会不生效
                 cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-                cap.set(cv2.CAP_PROP_FPS, 60)
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.SETTINGS["camera"]["width"])
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.SETTINGS["camera"]["height"])
-                my_log.info(f"摄像头打开成功 index={used_idx}")
+                cap.set(cv2.CAP_PROP_FPS, want_fps)
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, want_w)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, want_h)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # 只保留最新一帧，减少延迟
+
+                real_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                real_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                real_fps = cap.get(cv2.CAP_PROP_FPS)
+                my_log.info(f"摄像头打开成功 index={used_idx} 分辨率 {real_w}x{real_h} 驱动标称 {real_fps:.0f}FPS")
+                if want_fps >= 60 and real_fps < 45:
+                    my_log.warning(
+                        f"摄像头没跑到 {want_fps}FPS（驱动上报 {real_fps:.0f}FPS），"
+                        f"可把 settings.yaml 的 camera.width/height 调小，或确认该分辨率支持 MJPG 高帧率")
             else:
                 my_log.error(f"摄像头打不开：配置的 index={my_cam}，自动扫描 0~3 也没有可用设备")
             state['cap'] = cap
@@ -310,9 +382,9 @@ def main():
         cv2.destroyAllWindows()
         return
 
-    # 视觉线程的队列（线程安全，只存最新数据）
-    result_queue = queue.Queue(maxsize=1)
-    vision_thread = None   # 游戏循环中启动
+    # 采集线程 / 视觉线程（游戏循环中创建，本局结束就停）
+    capture_thread = None
+    vision_thread = None
 
     while True:   # 游戏大循环（可以无限次重新开始）
         # --- 1. 选模式 ---
@@ -337,35 +409,30 @@ def main():
                            for _ in range(max_shou)]
             last_hands = [None] * max_shou
 
-            # ============ 启动视觉线程 ============
-            vision_thread = VisionThread(
+            # ============ 启动采集线程 + 视觉线程 ============
+            ai_cfg = config.SETTINGS.get("ai", {})
+            capture_thread = CaptureThread(
                 cap,
-                result_queue,
-                infer_width=320,          # 推理分辨率，可调（越小越快）
-                infer_height=240,
                 display_width=config.WINDOW_WIDTH,
                 display_height=config.WINDOW_HEIGHT,
-                max_hands=max_shou,
-                mirror=config.SETTINGS["camera"].get("mirror", True)
+                infer_width=ai_cfg.get("infer_width", 320),    # 推理分辨率（越小越快）
+                infer_height=ai_cfg.get("infer_height", 240),
+                mirror=config.SETTINGS["camera"].get("mirror", True),
             )
+            capture_thread.start()
+            vision_thread = VisionThread(capture_thread, max_hands=max_shou)
             vision_thread.start()
             # ====================================
 
             frame_counter = 0   # 用于隔帧更新物理（保持手感）
 
             while not game.game_over:
-                # ---------- 从视觉线程获取最新数据 ----------
-                hands_norm = None
-                frame = None
-                try:
-                    hands_norm, frame = result_queue.get_nowait()
-                except queue.Empty:
-                    # 如果队列为空（极少发生），使用上一帧（但为了安全，我们让帧保持上一次的）
-                    # 这里为了简化，如果拿不到数据，就跳过这一帧的绘制（但会闪屏）
-                    # 更好的做法：缓存上一次的 frame，但通常在子线程持续运行下不会空。
-                    # 所以我们如果拿不到，就继续使用上一帧（但需要外部变量缓存）
-                    # 为了简单，我们直接 continue 等待下一帧（可能造成短暂卡顿，但几乎不会发生）
+                # ---------- 取最新画面 + 最新手势（两者独立，互不阻塞） ----------
+                frame, _seq = capture_thread.latest_display()
+                if frame is None:
+                    time.sleep(0.002)
                     continue
+                hands_norm = vision_thread.get_hands()
 
                 # 将归一化坐标映射到屏幕坐标
                 now_hands = []
@@ -458,13 +525,18 @@ def main():
                     game.check_collisions(dao_trails)
                 frame_counter += 1
 
+                # 每约 300 帧记录一次真实帧率，方便排查"画面卡"
+                if frame_counter % 300 == 0:
+                    my_log.info(
+                        f"运行帧率 采集 {capture_thread.fps:.0f}FPS / 识别 {vision_thread.fps:.0f}FPS")
+
                 # ---------- 绘制游戏元素 ----------
                 game.draw(frame)
 
                 # 显示模式信息
                 mode_name = "增强" if vision_engine.get_mode() == "BOOST" else "正常"
                 config.add_cn_text(
-                    f"视觉模式：{mode_name}",
+                    f"视觉模式：{mode_name}（{vision_engine.get_delegate()}）",
                     (40, 90),
                     font_size=28,
                     color=(255, 255, 0),
@@ -476,6 +548,13 @@ def main():
                     font_size=22,
                     color=(200, 200, 200),
                     bg_color=None
+                )
+                config.add_cn_text(
+                    f"采集 {capture_thread.fps:.0f} FPS ｜ 识别 {vision_thread.fps:.0f} FPS",
+                    (40, 170),
+                    font_size=22,
+                    color=(150, 255, 150),
+                    bg_color=(0, 0, 0)
                 )
                 config.flush_cn_texts(frame)
 
@@ -490,11 +569,15 @@ def main():
                     is_playing = False
                     break
 
-            # ---------- 游戏结束，停止视觉线程 ----------
+            # ---------- 游戏结束，停止视觉线程和采集线程 ----------
             if vision_thread is not None:
                 vision_thread.stop()
                 vision_thread.join()
                 vision_thread = None
+            if capture_thread is not None:
+                capture_thread.stop()
+                capture_thread.join()
+                capture_thread = None
 
             # ---------- 结算 ----------
             if is_playing:
@@ -512,6 +595,9 @@ def main():
     if vision_thread is not None:
         vision_thread.stop()
         vision_thread.join()
+    if capture_thread is not None:
+        capture_thread.stop()
+        capture_thread.join()
     cap.release()
     cv2.destroyAllWindows()
 

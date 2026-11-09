@@ -1,24 +1,25 @@
 # 这是游戏的全局配置文件，你可以随时修改以下参数以改变游戏行为
 
 camera:
-  index: 1     # 摄像头编号，0代表默认摄像头，外接摄像头可以改为1"http://192.168.3.135:8081"
+  index: 0    # 摄像头编号，0代表默认摄像头，外接摄像头可以改为1（EMEET SmartCam C60E 在 1 号，支持 720P 60FPS）
   width: 1280       # 摄像头捕获画面宽度
   height: 720       # 摄像头捕获画面高度
+  fps: 60           # 请求的采集帧率（实际以驱动为准，启动日志会打印真实值）
   mirror: true      # 画面镜像开关，true为开启镜像（像照镜子一样），false为关闭镜像
 
 game:
   window_width: 1280    # 游戏渲染窗口宽度
   window_height: 720    # 游戏渲染窗口高度
-  spawn_interval: 20    # 水果生成的间隔时间（帧数），数值越小，水果弹出越快越密集
+  spawn_interval: 35    # 水果生成的间隔时间（帧数），数值越小，水果弹出越快越密集
   max_on_screen: 12 
   # 基础生成间隔（帧）
   spawn_interval: 12
   # 最小生成间隔
   min_spawn_interval: 4
   # 初始屏幕最大物体数
-  max_on_screen: 15
+  max_on_screen: 12
   # 最大允许物体数上限
-  max_on_screen_cap: 30
+  max_on_screen_cap: 25
   # 每隔多少秒提升一次难度
   difficulty_step_time: 10
   # PK模式总时间
@@ -28,6 +29,9 @@ game:
   fruit_theme: "default"  # 把 default 改成 ads 即可  ads是广告图标位 default普通游玩
 ai:
   max_hands: 6          # AI 最多同时识别的手部数量（影响性能和刀光数量）
+  delegate: "auto"      # 识别运行设备：auto=优先GPU，没GPU自动退回CPU；cpu=强制CPU
+  infer_width: 320      # 推理分辨率宽（越小越快，越大会更准一点点）
+  infer_height: 240     # 推理分辨率高
 
 paths:
   assets_dir: "assets"                  # 游戏素材（图片、音效）的根目录
