@@ -1,52 +1,44 @@
-# 这是游戏的全局配置文件，你可以随时修改以下参数以改变游戏行为
+# =============================================================
+# Swift-Fruit-Slice AI 切水果 —— 全局配置文件
+# 修改后保存并重启游戏生效（打包版改 exe 同目录下的 settings.yaml）
+# =============================================================
 
 camera:
-  index: 1    # 摄像头编号，0代表默认摄像头，外接摄像头可以改为1（EMEET SmartCam C60E 在 1 号，支持 720P 60FPS）
-  width: 1280       # 摄像头捕获画面宽度
-  height: 720       # 摄像头捕获画面高度
-  fps: 60           # 请求的采集帧率（实际以驱动为准，启动日志会打印真实值）
-  mirror: true      # 画面镜像开关，true为开启镜像（像照镜子一样），false为关闭镜像
+  index: 1          # 摄像头编号：0=内置/默认，1=第一个外接摄像头，2=第二个…
+  width: 1280       # 采集宽度（分辨率越高越清晰，但帧率可能下降）
+  height: 720       # 采集高度
+  fps: 60           # 请求帧率；实际以驱动为准，启动日志会打印真实值
+  mirror: true      # 画面镜像：true 像照镜子（推荐），false 为原始方向
 
 game:
-  window_width: 1280    # 游戏渲染窗口宽度
-  window_height: 720    # 游戏渲染窗口高度
-  spawn_interval: 35    # 水果生成的间隔时间（帧数），数值越小，水果弹出越快越密集
-  max_on_screen: 12 
-  # 基础生成间隔（帧）
-  spawn_interval: 12
-  # 最小生成间隔
-  min_spawn_interval: 4
-  # 初始屏幕最大物体数
-  max_on_screen: 12
-  # 最大允许物体数上限
-  max_on_screen_cap: 25
-  # 每隔多少秒提升一次难度
-  difficulty_step_time: 10
-  # PK模式总时间
-  total_time: 30
+  window_width: 1280        # 游戏窗口宽度
+  window_height: 720        # 游戏窗口高度
+  spawn_interval: 12        # 水果初始生成间隔（帧），越小越密集
+  min_spawn_interval: 4     # 难度提升后允许的最小生成间隔（帧）
+  max_on_screen: 12         # 屏幕上初始最多同时存在的物体数
+  max_on_screen_cap: 25     # 难度提升后物体数上限
+  difficulty_step_time: 10  # 每隔多少秒提升一次难度
+  total_time: 30            # 双人 PK 模式总时长（秒）
+  fruit_theme: "default"    # 水果主题：default=普通水果；ads=广告图标
 
-
-  fruit_theme: "default"  # 把 default 改成 ads 即可  ads是广告图标位 default普通游玩
 ai:
-  max_hands: 6          # AI 最多同时识别的手部数量（影响性能和刀光数量）
-  delegate: "auto"      # 识别运行设备：auto=优先GPU，没GPU自动退回CPU；cpu=强制CPU
-  infer_width: 320      # 推理分辨率宽（越小越快，越大会更准一点点）
-  infer_height: 240     # 推理分辨率高
+  max_hands: 6         # 最多同时识别几只手（越大越吃性能）
+  delegate: "auto"     # 推理设备：auto=优先 GPU，失败自动退回 CPU；cpu=强制 CPU
+  infer_width: 320     # 推理输入宽度（越小越快，越大略准）
+  infer_height: 240    # 推理输入高度
 
 paths:
-  assets_dir: "assets"                  # 游戏素材（图片、音效）的根目录
-  models_dir: "models"                  # AI 手势识别模型所在的根目录
-  model_name: "hand_landmarker.task"    # AI 模型的文件名称
-  bgm_name: "1.mp3"                     # 游戏背景音乐的文件名称
+  assets_dir: "assets"                # 素材根目录（相对 exe 所在目录）
+  models_dir: "models"                # 模型根目录
+  model_name: "hand_landmarker.task"  # 手势识别模型文件名
+  bgm_name: "1.mp3"                   # 背景音乐文件名
 
+# 仅在 game.fruit_theme 改为 "ads" 时生效：把水果换成广告图标
 ads:
-  enabled: true
-  folder: "ads"    # 文件夹名
-  scale: 0.49      # 想要多大改这里，0.75就是75%（这个是统一的比例）
-  # 假如某个产品过大或过小，取消下面的注释并修改名字，就可以单独调整（没写在里面的还是按上面的统一比例）
-  custom_scales:
-    shouji: 0.23     # 比如把叫 shouji.png 的图片缩放比例单独设为 0.15
-    shoubiao: 0.30   # 比如把叫 shoubiao.png 的图片缩放比例单独设为 0.08
-    crw : 0.30
-    bing : 0.23
-    lachang : 0.30
+  scale: 0.49        # 全部广告图标的统一缩放比例
+  custom_scales:     # 单独调整某张图，没写的仍用上面的 scale
+    shouji: 0.23
+    shoubiao: 0.30
+    crw: 0.30
+    bing: 0.23
+    lachang: 0.30
