@@ -14,6 +14,12 @@ dist/
 *txt
 *docx
 
+# 与主项目无关的练习项目
+Snakegame/
+
+# 打包配置与产物（只保留在本地，不上传）
+*.spec
+
 # 运行时日志与本地交付文档（不上传）
 logs/
 .screenshots/
