@@ -61,11 +61,12 @@
 ## 🛠️ 目录结构与运行指南
 
 ### 核心目录
-- `Snakegame/`: 初代《AI体感贪吃蛇》源码与资源目录。
-- `main.py`: 进化版《AI切水果》主程序入口。
+- `main1.py`: 进化版《AI切水果》主程序入口（多线程采集 + 识别 + 渲染）。
+- `vision_engine.py`: MediaPipe 手势识别封装（懒加载，支持 GPU/CPU 自动回退）。
 - `config.py` & `settings.yaml`: 切水果游戏的热插拔配置与资源加载模块。
 - `game_core.py`: 切水果核心逻辑与实体定义 (水果、炸弹、点线碰撞引擎)。
 - `ui_screens.py`: 纯视觉控制的悬停 UI 界面组件。
+- `logger.py` / `version.py`: 日志（logs/game.log）与版本号。
 - `assets/` & `models/`: 游戏图像、音效素材及 MediaPipe AI 模型目录。
 
 ### 环境要求与安装
@@ -76,12 +77,25 @@ pip install -r requirements.txt
 ```
 
 ### 运行游戏
-**运行 进化版《AI切水果》：**
 ```bash
-python main.py
+python main1.py
 ```
-**运行 初代《AI体感贪吃蛇》：**
-```bash
-cd Snakegame
-python main.py
+
+### 摄像头编号怎么改（画面打不开 / 用错摄像头时看这里）
+
+配置文件：**`settings.yaml` 第 4 行**：
+
+```yaml
+camera:
+  index: 1      # ← 改这个数字：0=系统默认摄像头，1=外接摄像头
+  width: 1280
+  height: 720
+  fps: 60
 ```
+
+- `index: 0`：电脑自带/默认摄像头
+- `index: 1`、`2`、`3`…：第 2、3、4 个摄像头（外接 USB 摄像头通常是 1 或 2）
+- 改完保存，**重新启动游戏**即可生效（打包版同样修改 exe 旁边的 `settings.yaml`）
+- 编号填错不会卡死：程序会自动扫描 0~3 找可用摄像头；实在找不到会提示「未检测到可用的摄像头」
+- 实际用到的编号会写进 `logs/game.log`，格式为 `摄像头打开成功 index=1 分辨率 1280x720`
+- 帧率不够时（如只有 10 FPS），通常是选到了低帧率摄像头，把 `index` 换成支持 60FPS 的那个即可

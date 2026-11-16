@@ -24,3 +24,7 @@ Snakegame/
 logs/
 .screenshots/
 交付文档.md
+
+# 本地发布辅助文件（不上传）
+发布Release.ps1
+发布说明.md
