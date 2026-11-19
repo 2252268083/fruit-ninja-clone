@@ -25,7 +25,7 @@ ai:
   max_hands: 6         # 最多同时识别几只手（越大越吃性能）
   delegate: "auto"     # 推理设备：auto=优先 GPU，失败自动退回 CPU；cpu=强制 CPU
   infer_width: 320     # 推理输入宽度（越小越快，越大略准）
-  infer_height: 240    # 推理输入高度
+  infer_height: 180    # 推理输入高度（320x180 与摄像头 16:9 一致，避免画面被压扁）
 
 paths:
   assets_dir: "assets"                # 素材根目录（相对 exe 所在目录）

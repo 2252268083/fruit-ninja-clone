@@ -142,7 +142,7 @@ class CaptureThread(threading.Thread):
     现在读帧独立成线程，每帧都取最新的，延迟恒定不累积。
     """
     def __init__(self, cap, display_width, display_height,
-                 infer_width=320, infer_height=240, mirror=True):
+                 infer_width=320, infer_height=180, mirror=True):
         super().__init__(daemon=True)
         self.cap = cap
         self.disp_w = display_width
@@ -479,7 +479,7 @@ def main():
                 display_width=config.WINDOW_WIDTH,
                 display_height=config.WINDOW_HEIGHT,
                 infer_width=ai_cfg.get("infer_width", 320),    # 推理分辨率（越小越快）
-                infer_height=ai_cfg.get("infer_height", 240),
+                infer_height=ai_cfg.get("infer_height", 180),
                 mirror=config.SETTINGS["camera"].get("mirror", True),
             )
             capture_thread.start()

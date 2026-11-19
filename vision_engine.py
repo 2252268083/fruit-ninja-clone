@@ -23,11 +23,10 @@ _mp_lock = threading.Lock()
 hand_det = None   # HandLandmarker 检测器（同样是懒创建）
 _det_lock = threading.RLock()  # 可重入：ensure_init 预热时会再次进入 detect_hands
 
-# 找模型文件：优先 exe 所在目录下的 models/，找不到再试服务器路径
+# 找模型文件：exe 所在目录下的 models/（打包版与源码版都用这里）
 _TASK_DIRS = [
     os.path.join(config.get_base_dir(), config.SETTINGS["paths"]["models_dir"],
                  config.SETTINGS["paths"]["model_name"]),  # 找配置
-    '/mnt/user-data/uploads/hand_landmarker.task',          # 假如是服务器的路径
 ]
 _real_task_path = next((p for p in _TASK_DIRS if os.path.exists(p)), None)
 

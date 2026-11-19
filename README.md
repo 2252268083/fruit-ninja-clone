@@ -120,7 +120,7 @@ python main1.py
 |------|------|------|
 | `max_hands` | `6` | 最多同时识别的手数量。越低越省性能 |
 | `delegate` | `"auto"` | 推理设备：`auto`=优先 GPU、失败自动退回 CPU；`cpu`=强制 CPU |
-| `infer_width` / `infer_height` | `320` / `240` | 推理输入分辨率。调小更快、调大略准 |
+| `infer_width` / `infer_height` | `320` / `180` | 推理输入分辨率（16:9，与摄像头比例一致）。实际会按摄像头画面比例自动计算高度 |
 
 #### `paths` —— 资源路径
 
