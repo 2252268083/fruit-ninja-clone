@@ -14,28 +14,11 @@ import numpy as np
 
 from version import __version__  # 版本号统一在 version.py 里维护
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+from fonts import get_ziti as _get_ziti   # 与 config 共用一份字体缓存
 
 # ---------- 启动画面皮肤：渐变背景 + 步骤卡片 + 底部进度条（全中文，PIL 绘制） ----------
 _SPLASH_W, _SPLASH_H = 1280, 720
-
-_ziti_cache = {}
-
-def _get_ziti(size):
-    if size in _ziti_cache:
-        return _ziti_cache[size]
-    for p in ["C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/msyhbd.ttc",
-              "C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/simsun.ttc"]:
-        if os.path.exists(p):
-            try:
-                f = ImageFont.truetype(p, size)
-                _ziti_cache[size] = f
-                return f
-            except Exception:
-                continue
-    f = ImageFont.load_default()
-    _ziti_cache[size] = f
-    return f
 
 def _splash_bg():
     # 深蓝紫 -> 近黑 的竖直渐变背景
@@ -109,6 +92,17 @@ def _render_message(title, lines, color=(255, 90, 90)):
                fill=(220, 225, 235) if i == 0 else (150, 160, 180), anchor="mm")
     return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
 
+def _show_splash(img):
+    """启动/提示画面跟随窗口当前尺寸，窗口被拉伸后不再留黑边"""
+    try:
+        w, h = cv2.getWindowImageRect('Swift-Fruit-Slice')[2:4]
+        if w > 0 and h > 0 and (w, h) != (img.shape[1], img.shape[0]):
+            img = cv2.resize(img, (w, h))
+    except Exception:
+        pass
+    cv2.imshow('Swift-Fruit-Slice', img)
+
+
 def _window_closed():
     """用户点了游戏窗口右上角的 × 时返回 True（连续两次确认，避免窗口重建瞬间误判）"""
     def _visible():
@@ -127,10 +121,98 @@ def _open_camera(idx):
     if os.name == 'nt':
         cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
         if not cap.isOpened():
+            cap.release()   # 先释放失败的句柄，否则个别驱动会一直占着设备
             cap = cv2.VideoCapture(idx)
     else:
         cap = cv2.VideoCapture(idx)
     return cap
+
+
+def _open_camera_auto(prefer_idx):
+    """先用配置编号，打不开就扫描 0~3；返回 (cap, 实际编号)，全都失败时编号为 None"""
+    cap = _open_camera(prefer_idx)
+    if cap.isOpened():
+        return cap, prefer_idx
+    cap.release()
+    for idx in range(4):
+        if idx == prefer_idx:
+            continue
+        cap2 = _open_camera(idx)
+        if cap2.isOpened():
+            return cap2, idx
+        cap2.release()
+    return None, None
+
+
+def _apply_camera_settings(cap):
+    """统一设置摄像头参数（启动与断线重连共用）"""
+    import config
+    from logger import my_log
+    cam_cfg = config.SETTINGS["camera"]
+    want_w = cam_cfg.get("width", 1280)
+    want_h = cam_cfg.get("height", 720)
+    want_fps = cam_cfg.get("fps", 60)
+
+    # 顺序：先格式(MJPG) → 再帧率 → 再分辨率，反了部分驱动会不生效
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+    cap.set(cv2.CAP_PROP_FPS, want_fps)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, want_w)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, want_h)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # 只保留最新一帧，减少延迟
+
+    real_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    real_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    real_fps = cap.get(cv2.CAP_PROP_FPS)
+    my_log.info(f"摄像头参数已应用 分辨率 {real_w}x{real_h} 驱动标称 {real_fps:.0f}FPS")
+    if want_fps >= 60 and real_fps < 45:
+        my_log.warning(
+            f"摄像头没跑到 {want_fps}FPS（驱动上报 {real_fps:.0f}FPS），"
+            f"可把 settings.yaml 的 camera.width/height 调小，或确认该分辨率支持 MJPG 高帧率")
+
+
+def _assign_hands(hands, last_hands, last_speed, max_shou, match_dist, pk):
+    """把本帧检测到的手分配给刀光槽位。
+
+    匹配阈值随上一帧手速自适应：30Hz 下快速横扫一帧能移动 300~400px，
+    固定 256px 会被误判成"新手"导致刀光断开。
+    返回 (assigned, unassigned, new_speed)：
+      assigned   {本帧手序号: 槽位}
+      unassigned [(本帧手序号, 可分配范围)]
+      new_speed  更新后的各槽位手速
+    """
+    import config
+    import math
+    assigned = {}
+    taken = set()
+    unassigned = []
+    new_speed = list(last_speed)
+
+    for hi, h in enumerate(hands):
+        if pk:
+            half = max(1, max_shou // 2)
+            choose_range = (range(0, half) if h['rx'] < config.WINDOW_WIDTH // 2
+                            else range(half, max_shou))
+        else:
+            choose_range = range(max_shou)
+
+        best_i, min_dist = -1, float('inf')
+        for i in choose_range:
+            if last_hands[i] is None or i in taken:
+                continue
+            dist = math.hypot(h['rx'] - last_hands[i][0], h['ry'] - last_hands[i][1])
+            limit = min(int(config.WINDOW_WIDTH * 0.6),
+                        match_dist + int(0.6 * last_speed[i]))
+            if dist < limit and dist < min_dist:
+                min_dist, best_i = dist, i
+
+        if best_i != -1:
+            assigned[hi] = best_i
+            taken.add(best_i)
+            new_speed[best_i] = min_dist
+        else:
+            unassigned.append((hi, choose_range))
+
+    return assigned, unassigned, new_speed
 
 
 # ======================== 采集线程 ========================
@@ -142,13 +224,13 @@ class CaptureThread(threading.Thread):
     现在读帧独立成线程，每帧都取最新的，延迟恒定不累积。
     """
     def __init__(self, cap, display_width, display_height,
-                 infer_width=320, infer_height=180, mirror=True):
+                 infer_width=None, mirror=True):
         super().__init__(daemon=True)
+        import config
         self.cap = cap
         self.disp_w = display_width
         self.disp_h = display_height
-        self.infer_w = infer_width
-        self.infer_h = infer_height
+        self.infer_w = infer_width or config.get_infer_width()
         self.mirror = mirror
         self.running = True
         self.fps = 0.0
@@ -241,14 +323,7 @@ class VisionThread(threading.Thread):
     def run(self):
         from logger import my_log
         import vision_engine  # 延迟导入，避免阻塞主线程启动
-        # 预热模型（第一次调用会加载，耗时但只一次）
-        try:
-            vision_engine.detect_hands(
-                np.zeros((self.capture.infer_h, self.capture.infer_w, 3), dtype=np.uint8))
-        except Exception as e:
-            self.failed = True
-            my_log.exception(f"手势识别初始化失败：{e}")
-            return
+        # 启动时 ensure_init() 已经预热过，这里不再重复预热
 
         last_seq = -1
         err_count = 0
@@ -311,7 +386,7 @@ def main():
         '打开摄像头...',                  # 4: 打开摄像头
     ]
 
-    cv2.imshow('Swift-Fruit-Slice', _render_loading(step_texts, 0))
+    _show_splash(_render_loading(step_texts, 0))
     cv2.waitKey(1)
 
     def _set_step(s):
@@ -334,41 +409,12 @@ def main():
 
             # 5. 打开摄像头：先用配置编号，打不开就自动扫描 0~3，再不行也优雅退出不卡死
             my_cam = config.SETTINGS["camera"]["index"]
-            cap = _open_camera(my_cam)
-            used_idx = my_cam
-            if not cap.isOpened():
-                cap.release()   # 打不开的句柄先释放，避免反复启动泄漏设备
-                for idx in range(4):
-                    if idx == my_cam:
-                        continue
-                    cap2 = _open_camera(idx)
-                    if cap2.isOpened():
-                        cap = cap2
-                        used_idx = idx
-                        my_log.warning(f"配置的摄像头 index={my_cam} 打不开，已自动改用 index={idx}")
-                        break
-                    cap2.release()
-            if cap.isOpened():
-                cam_cfg = config.SETTINGS["camera"]
-                want_w = cam_cfg.get("width", 1280)
-                want_h = cam_cfg.get("height", 720)
-                want_fps = cam_cfg.get("fps", 60)
-
-                # 顺序：先格式(MJPG) → 再帧率 → 再分辨率，反了部分驱动会不生效
-                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-                cap.set(cv2.CAP_PROP_FPS, want_fps)
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, want_w)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, want_h)
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # 只保留最新一帧，减少延迟
-
-                real_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                real_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                real_fps = cap.get(cv2.CAP_PROP_FPS)
-                my_log.info(f"摄像头打开成功 index={used_idx} 分辨率 {real_w}x{real_h} 驱动标称 {real_fps:.0f}FPS")
-                if want_fps >= 60 and real_fps < 45:
-                    my_log.warning(
-                        f"摄像头没跑到 {want_fps}FPS（驱动上报 {real_fps:.0f}FPS），"
-                        f"可把 settings.yaml 的 camera.width/height 调小，或确认该分辨率支持 MJPG 高帧率")
+            cap, used_idx = _open_camera_auto(my_cam)
+            if cap is not None and cap.isOpened():
+                if used_idx != my_cam:
+                    my_log.warning(f"配置的摄像头 index={my_cam} 打不开，已自动改用 index={used_idx}")
+                my_log.info(f"摄像头已打开 index={used_idx}")
+                _apply_camera_settings(cap)
             else:
                 my_log.error(f"摄像头打不开：配置的 index={my_cam}，自动扫描 0~3 也没有可用设备")
             state['cap'] = cap
@@ -401,7 +447,7 @@ def main():
             elif time.time() - t_cam_start > 20:
                 state['error'] = TimeoutError("摄像头打开超时（超过20秒），可能是编号无效或设备被占用")
                 break
-        cv2.imshow('Swift-Fruit-Slice', _render_loading(step_texts, state['step']))
+        _show_splash(_render_loading(step_texts, state['step']))
         cv2.waitKey(30)
         if _window_closed():   # 加载中点了右上角 ×，直接结束
             cv2.destroyAllWindows()
@@ -409,12 +455,18 @@ def main():
 
     # 加载失败：中文提示错误原因，5秒后退出
     if state['error'] is not None:
-        cv2.imshow('Swift-Fruit-Slice', _render_loading(step_texts, state['step'], err=state['error']))
+        _show_splash(_render_loading(step_texts, state['step'], err=state['error']))
         for _ in range(50):   # 最多等 5 秒，按任意键或关闭窗口可提前退出
             if cv2.waitKey(100) != -1 or _window_closed():
                 break
         cv2.destroyAllWindows()
-        raise state['error']
+        # 窗口版没有控制台，异常直接 raise 会静默消失；错误页已经展示过原因
+        try:
+            from logger import my_log
+            my_log.error(f"启动加载失败：{state['error']}")
+        except Exception:
+            pass
+        return
 
     # 后台线程已把慢库导入完毕，这里直接用（缓存命中，瞬间完成）
     import math
@@ -431,7 +483,7 @@ def main():
         # 摄像头打不开：中文提示 + 等按键退出，绝不能进游戏循环"假死卡住"
         cam_idx = config.SETTINGS["camera"]["index"]
         my_log.error(f"摄像头不可用（配置 index={cam_idx}，已自动扫描 0~3），游戏退出")
-        cv2.imshow('Swift-Fruit-Slice', _render_message(
+        _show_splash(_render_message(
             "未检测到可用的摄像头！",
             [f"settings.yaml 里 camera.index 当前是 {cam_idx}",
              "请检查摄像头是否被占用 / 未接好",
@@ -471,6 +523,7 @@ def main():
             pinghua_qis = [math_utils.FingerSmoother(method='ewma', alpha=0.45, adaptive=True)
                            for _ in range(max_shou)]
             last_hands = [None] * max_shou
+            last_speed = [0.0] * max_shou   # 各槽位上一帧手速，用于自适应匹配阈值
 
             # ============ 启动采集线程 + 视觉线程 ============
             ai_cfg = config.SETTINGS.get("ai", {})
@@ -478,8 +531,7 @@ def main():
                 cap,
                 display_width=config.WINDOW_WIDTH,
                 display_height=config.WINDOW_HEIGHT,
-                infer_width=ai_cfg.get("infer_width", 320),    # 推理分辨率（越小越快）
-                infer_height=ai_cfg.get("infer_height", 180),
+                infer_width=ai_cfg.get("infer_width", 320),    # 推理宽度（越小越快）
                 mirror=config.SETTINGS["camera"].get("mirror", True),
             )
             capture_thread.start()
@@ -522,49 +574,33 @@ def main():
                         ry = int(y * config.WINDOW_HEIGHT)
                         now_hands.append({'rx': rx, 'ry': ry})
 
-                # ---------- 防串线算法（与原来完全一致） ----------
+                # ---------- 防串线算法：匹配阈值随手速自适应 ----------
                 if not now_hands:   # 没检测到手
                     for i in range(max_shou):
                         pinghua_qis[i].reset()
                         last_hands[i] = None
+                        last_speed[i] = 0.0
                 else:
+                    match_dist = max(120, int(config.WINDOW_WIDTH * 0.2))  # 基础匹配阈值随窗口宽度自适应
+                    assigned, unassigned, last_speed = _assign_hands(
+                        now_hands, last_hands, last_speed, max_shou, match_dist, moshi == 'pk')
                     used = set()
-                    assigned = {}
-                    unassigned = []
-                    match_dist = max(120, int(config.WINDOW_WIDTH * 0.2))  # 匹配阈值随窗口宽度自适应
 
-                    for h in now_hands:
-                        is_left = h['rx'] < config.WINDOW_WIDTH // 2  # 不再硬编码 640
-                        if moshi == 'pk':
-                            half = max(1, max_shou // 2)
-                            choose_range = range(0, half) if is_left else range(half, max_shou)
-                        else:
-                            choose_range = range(max_shou)
-
-                        best_i, min_dist = -1, float('inf')
-                        for i in choose_range:
-                            if last_hands[i] is not None and i not in assigned.values():
-                                dist = math.hypot(h['rx'] - last_hands[i][0],
-                                                  h['ry'] - last_hands[i][1])
-                                if dist < match_dist and dist < min_dist:
-                                    min_dist, best_i = dist, i
-
-                        if best_i != -1:
-                            assigned[id(h)] = best_i
-                            used.add(best_i)
-                            sx, sy = pinghua_qis[best_i].smooth(h['rx'], h['ry'])
-                            # 卡路里计算
-                            if len(dao_trails[best_i]) > 0:
-                                last_pt = dao_trails[best_i][-1]
-                                dist = math.hypot(sx - last_pt[0], sy - last_pt[1])
-                                game.add_distance(dist, best_i, max_shou)
-                            dao_trails[best_i].append((sx, sy))
-                            last_hands[best_i] = (h['rx'], h['ry'])
-                        else:
-                            unassigned.append((h, choose_range))
+                    for hi, best_i in assigned.items():
+                        h = now_hands[hi]
+                        used.add(best_i)
+                        sx, sy = pinghua_qis[best_i].smooth(h['rx'], h['ry'])
+                        # 卡路里计算
+                        if len(dao_trails[best_i]) > 0:
+                            last_pt = dao_trails[best_i][-1]
+                            dist = math.hypot(sx - last_pt[0], sy - last_pt[1])
+                            game.add_distance(dist, best_i)
+                        dao_trails[best_i].append((sx, sy))
+                        last_hands[best_i] = (h['rx'], h['ry'])
 
                     # 未分配的手给空闲的刀光
-                    for h, choose_range in unassigned:
+                    for hi, choose_range in unassigned:
+                        h = now_hands[hi]
                         for i in choose_range:
                             if i not in used:
                                 used.add(i)
@@ -572,6 +608,7 @@ def main():
                                 sx, sy = pinghua_qis[i].smooth(h['rx'], h['ry'])
                                 dao_trails[i].append((sx, sy))
                                 last_hands[i] = (h['rx'], h['ry'])
+                                last_speed[i] = 0.0
                                 break
 
                     # 没出现的手清空轨迹
@@ -579,6 +616,7 @@ def main():
                         if i not in used:
                             pinghua_qis[i].reset()
                             last_hands[i] = None
+                            last_speed[i] = 0.0
 
                 # 手离开时刀光逐渐消失
                 for i in range(max_shou):
@@ -683,24 +721,52 @@ def main():
                         game_err = "摄像头驱动无响应，已强制释放设备"
                 capture_thread = None
 
-            # ---------- 设备故障：中文提示后退出，不进结算、不留死画面 ----------
+            # ---------- 设备故障：先尝试重连摄像头，成功则回主菜单，失败才退出 ----------
             if game_err:
                 my_log.error(game_err)
-                cv2.imshow('Swift-Fruit-Slice', _render_message(
-                    "设备异常，游戏已停止",
+                _show_splash(_render_message(
+                    "设备异常，游戏已暂停",
                     [game_err,
-                     "请检查摄像头/AI 模型是否正常，然后重新启动游戏",
-                     "按任意键退出"],
+                     "按任意键重新连接摄像头并返回主菜单",
+                     "按 Esc 或关闭窗口退出游戏"],
                 ))
-                for _ in range(300):   # 最多等 30 秒，按任意键或关闭窗口可提前退出
-                    if cv2.waitKey(100) != -1 or _window_closed():
+                retry = True
+                for _ in range(100):   # 最多等 10 秒，超时也尝试重连一次
+                    k = cv2.waitKey(100) & 0xFF
+                    if _window_closed() or k == 27:
+                        retry = False
                         break
+                    if k != 255:
+                        break
+
+                if retry:
+                    my_log.info("尝试重新连接摄像头")
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+                    cap, used_idx = _open_camera_auto(config.SETTINGS["camera"]["index"])
+                    if cap is not None and cap.isOpened():
+                        _apply_camera_settings(cap)
+                        my_log.info(f"摄像头已重连 index={used_idx}，返回主菜单")
+                        quit_to_menu = True   # 复用"回主菜单"分支
+                        break
+                    my_log.error("摄像头重连失败")
+                    _show_splash(_render_message(
+                        "摄像头重连失败",
+                        ["请检查设备是否被其他程序占用 / 是否插好",
+                         "按任意键退出游戏"],
+                    ))
+                    for _ in range(100):
+                        if cv2.waitKey(100) != -1 or _window_closed():
+                            break
+
                 is_playing = False
                 break
 
             # ---------- 按 Q / 关闭窗口：回到主菜单（不同于结算里的"退出游戏"） ----------
             if quit_to_menu:
-                my_log.info("玩家按 Q 返回主菜单")
+                my_log.info("返回主菜单")
                 continue
 
             # ---------- 结算 ----------
@@ -727,6 +793,10 @@ def main():
     if capture_thread is not None:
         capture_thread.stop()
         capture_thread.join(timeout=1.5)
+    try:
+        vision_engine.close_det()   # 真正释放检测器资源
+    except Exception:
+        pass
     try:
         cap.release()
     except Exception:

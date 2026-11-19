@@ -113,6 +113,12 @@ python main1.py
 | `difficulty_step_time` | `10` | 每隔多少秒提升一档难度 |
 | `total_time` | `30` | 双人 PK 模式总时长（秒） |
 | `fruit_theme` | `"default"` | 水果主题：`default`=普通水果；`ads`=广告图标（需配合 `ads` 段） |
+| `max_missed` | `15` | 漏掉多少个水果判定游戏结束 |
+| `max_bombs_hit` | `4` | 切到普通炸弹多少次判定游戏结束 |
+| `bomb_chance` | `0.22` | 每次生成时出炸弹的概率 |
+| `deadly_chance` | `0.25` | 出炸弹时是致命炸弹（直接结束）的概率 |
+| `multi_chance` | `0.15` | 每次生成时出多块水果的概率 |
+| `max_consec_bombs` | `2` | 最多连续生成几个炸弹，防止满屏炸弹 |
 
 #### `ai` —— 手势识别
 
@@ -120,7 +126,7 @@ python main1.py
 |------|------|------|
 | `max_hands` | `6` | 最多同时识别的手数量。越低越省性能 |
 | `delegate` | `"auto"` | 推理设备：`auto`=优先 GPU、失败自动退回 CPU；`cpu`=强制 CPU |
-| `infer_width` / `infer_height` | `320` / `180` | 推理输入分辨率（16:9，与摄像头比例一致）。实际会按摄像头画面比例自动计算高度 |
+| `infer_width` | `320` | 推理输入宽度（越小越快）。高度按摄像头画面比例自动计算，16:9 时约为 180 |
 
 #### `paths` —— 资源路径
 

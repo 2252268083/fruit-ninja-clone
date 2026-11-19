@@ -22,13 +22,31 @@ def _trail_hits_circle(trail, x, y, radius):
             return True
     return False
 
+
+_RESIZE_CACHE = {}
+CALORIE_PER_PIXEL = 0.0005   # 手部位移换算卡路里的系数（单机/双人共用）
+
+
+def _scaled(img, scale, key):
+    """按 0.05 量化缓存缩放结果：特效每帧 scale 都在变，避免重复 resize"""
+    q = max(0.05, round(scale * 20) / 20.0)
+    ck = (key, q)
+    out = _RESIZE_CACHE.get(ck)
+    if out is None:
+        h, w = img.shape[:2]
+        out = cv2.resize(img, (max(1, int(w * q)), max(1, int(h * q))))
+        while len(_RESIZE_CACHE) >= 256:   # 逐个淘汰最旧的，避免整体清空造成卡顿
+            _RESIZE_CACHE.pop(next(iter(_RESIZE_CACHE)), None)
+        _RESIZE_CACHE[ck] = out
+    return out
+
 class my_wanjia:
     # 玩家类，存分数
     def __init__(self):
         self.score = 0
         self.distance = 0.0 #记录玩家手的挥动总位移
     def get_calories(self):#计算卡路里
-        return self.distance * 0.0005
+        return self.distance * CALORIE_PER_PIXEL
 
 
 
@@ -76,8 +94,9 @@ class my_shuiguo: # 定义单个水果的属性和行为
     def draw(self, frame): # 把水果画到屏幕上
         if not self.is_cut: # 如果没被切开
             if self.images and self.images['whole'] is not None:
-                # 调用config里的函数，把完整的带旋转的水果图片贴到游戏画面上
-                config.overlay_image(frame, self.images['whole'], int(self.x), int(self.y), self.rot)
+                # 调用config里的函数，把完整的带旋转的水果图片贴到游戏画面上（旋转按角度缓存）
+                config.overlay_image(frame, self.images['whole'], int(self.x), int(self.y),
+                                     self.rot, cache_key=self.fruit_type)
             else:
                 # 没图片就画个圆圈代替一下，方便调试
                 cv2.circle(frame, (int(self.x), int(self.y)), 40, (0, 255, 255), -1)
@@ -85,9 +104,10 @@ class my_shuiguo: # 定义单个水果的属性和行为
             # 如果切开了，就画所有的碎片
             for p in self.cut_pieces:
                 if p['alpha'] > 0: # 只画没完全消失的碎片
-                    config.overlay_image(frame, p['image'], int(p['x']), int(p['y']), p['rot'], p['alpha'] / 255.0)
+                    config.overlay_image(frame, p['image'], int(p['x']), int(p['y']),
+                                         p['rot'], p['alpha'] / 255.0, cache_key=p.get('key'))
 
-    def cut(self, _=0): # 水果被切开的逻辑
+    def cut(self): # 水果被切开的逻辑
         self.is_cut = True # 标记为已切开
         if not self.images: return # 如果没有图片，直接返回
         
@@ -96,6 +116,7 @@ class my_shuiguo: # 定义单个水果的属性和行为
             if img is not None:
                 self.cut_pieces.append({ # 添加一个碎片到列表
                     'x': self.x, 'y': self.y, 'image': img,
+                    'key': f"{self.fruit_type}_{'L' if dx < 0 else 'R'}",
                     'vx': random.uniform(4, 7) * dx, # 水平弹开速度
                     'vy': random.uniform(-3, 2), # 垂直弹开速度
                     'rot': self.rot,
@@ -154,15 +175,17 @@ class my_duo_shuiguo: # 定义能切成多块的水果（如西瓜）
     def draw(self, frame): # 绘制水果到屏幕
         if not self.is_cut: # 如果没被切开，画完整的水果
             if self.images and self.images['whole'] is not None:
-                config.overlay_image(frame, self.images['whole'], int(self.x), int(self.y), self.rot)
+                config.overlay_image(frame, self.images['whole'], int(self.x), int(self.y),
+                                     self.rot, cache_key=self.fruit_type)
             else:
                 cv2.circle(frame, (int(self.x), int(self.y)), 45, (0, 200, 200), -1) # 没图就画个圈
         else: # 如果切开了，画所有碎块
             for p in self.cut_pieces:
                 if p['alpha'] > 0:
-                    config.overlay_image(frame, p['image'], int(p['x']), int(p['y']), p['rot'], p['alpha'] / 255.0)
+                    config.overlay_image(frame, p['image'], int(p['x']), int(p['y']),
+                                         p['rot'], p['alpha'] / 255.0, cache_key=p.get('key'))
 
-    def cut(self, angle=0): # 切开的逻辑
+    def cut(self): # 切开的逻辑
         self.is_cut = True
         if not self.images or 'pieces' not in self.images: return
         
@@ -173,6 +196,7 @@ class my_duo_shuiguo: # 定义能切成多块的水果（如西瓜）
             spd = random.uniform(5, 9) # 随机的弹飞速度
             self.cut_pieces.append({
                 'x': self.x, 'y': self.y, 'image': img,
+                'key': f"{self.fruit_type}_{i}",
                 'vx': math.cos(a) * spd, # 根据角度计算水平速度
                 'vy': math.sin(a) * spd - 1, # 根据角度计算垂直速度
                 'rot': self.rot + random.uniform(-30, 30),
@@ -225,7 +249,8 @@ class my_zhadan: # 定义炸弹的属性和行为
     def draw(self, frame): # 绘制炸弹
         if not self.is_exploded: # 如果没爆炸，画炸弹本身
             if self.image is not None:
-                config.overlay_image(frame, self.image, int(self.x), int(self.y), self.rot)
+                config.overlay_image(frame, self.image, int(self.x), int(self.y),
+                                     self.rot, cache_key=self.bomb_type)
             else: # 没图就画个圈
                 color = (0, 0, 255) if self.bomb_type == 'deadly' else (0, 0, 0)
                 cv2.circle(frame, (int(self.x), int(self.y)), 40, color, -1)
@@ -277,11 +302,8 @@ class Effect_Lianji: # 定义连击（Combo）特效
 
     def draw(self, frame): # 绘制特效
         if not self.key or self.key not in config.COMBO_IMAGES: return
-        img = config.COMBO_IMAGES[self.key]
-        h, w = img.shape[:2]
-        # 根据当前的缩放和透明度来绘制图片
-        sc = cv2.resize(img, (int(w * self.scale), int(h * self.scale)))
-        config.overlay_image(frame, sc, int(self.x), int(self.y), 0, self.alpha / 255.0)
+        img = _scaled(config.COMBO_IMAGES[self.key], self.scale, self.key)
+        config.overlay_image(frame, img, int(self.x), int(self.y), 0, self.alpha / 255.0)
 
 class Effect_Daoguang: # 定义切水果时的刀光特效
     def __init__(self, x, y, angle): # 初始化
@@ -296,15 +318,16 @@ class Effect_Daoguang: # 定义切水果时的刀光特效
 
     def done(self): return self.frame >= self.dur # 判断是否播放完毕
 
-    def draw(self, frame, blade_img): # 绘制刀光
+    def draw(self, frame, blade_img, blade_key=None): # 绘制刀光
         if blade_img is None: return
-        h, w = blade_img.shape[:2]
-        sc = cv2.resize(blade_img, (int(w * self.scale), int(h * self.scale)))
-        config.overlay_image(frame, sc, int(self.x), int(self.y), self.angle, self.alpha / 255.0)
+        sc = _scaled(blade_img, self.scale, blade_key)
+        config.overlay_image(frame, sc, int(self.x), int(self.y), self.angle,
+                             self.alpha / 255.0,
+                             cache_key=f"{blade_key}_fx" if blade_key else None)
 
 class Effect_Guozhi: # 定义果汁喷溅特效
-    def __init__(self, x, y, juice_img): # 初始化
-        self.x = x; self.y = y; self.img = juice_img
+    def __init__(self, x, y, juice_key): # 初始化
+        self.x = x; self.y = y; self.img_key = juice_key
         self.alpha = 255; self.scale = 1.0
         self.frame = 0; self.dur = 18 # 持续18帧
 
@@ -320,9 +343,9 @@ class Effect_Guozhi: # 定义果汁喷溅特效
     def done(self): return self.frame >= self.dur # 判断是否播放完毕
 
     def draw(self, frame): # 绘制果汁
-        if self.img is None: return
-        h, w = self.img.shape[:2]
-        sc = cv2.resize(self.img, (int(w * self.scale), int(h * self.scale)))
+        img = config.JUICE_IMAGES.get(self.img_key)
+        if img is None: return
+        sc = _scaled(img, self.scale, self.img_key)
         config.overlay_image(frame, sc, int(self.x), int(self.y), 0, min(255, max(0, self.alpha)) / 255.0)
 
 
@@ -359,8 +382,8 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
 
         self.game_over = False # 游戏是否结束
         self.game_over_reason = "" # 游戏结束原因
-        self.max_missed = 15 # 最大允许漏掉数
-        self.max_bombs_hit = 4 # 最大允许碰到炸弹数
+        self.max_missed = config.SETTINGS["game"].get("max_missed", 15) # 最大允许漏掉数
+        self.max_bombs_hit = config.SETTINGS["game"].get("max_bombs_hit", 4) # 最大允许碰到炸弹数
         
 
 
@@ -375,12 +398,12 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
 
 
 
-        self.bomb_chance = 0.22 # 生成炸弹的概率
-        self.deadly_chance = 0.25 # 生成致命炸弹的概率
-        self.multi_chance = 0.15 # 生成多块水果的概率
+        self.bomb_chance = config.SETTINGS["game"].get("bomb_chance", 0.22) # 生成炸弹的概率
+        self.deadly_chance = config.SETTINGS["game"].get("deadly_chance", 0.25) # 生成致命炸弹的概率
+        self.multi_chance = config.SETTINGS["game"].get("multi_chance", 0.15) # 生成多块水果的概率
         
         self.consec_bombs = 0 # 连续生成炸弹的计数器
-        self.max_consec_bombs = 2 # 最大连续生成炸弹数，防止满屏都是炸弹
+        self.max_consec_bombs = config.SETTINGS["game"].get("max_consec_bombs", 2) # 最大连续生成炸弹数，防止满屏都是炸弹
 
         #计算单手或者双手挥动的距离
         self.total_distance = 0.0 #单手/双手总挥动的距离
@@ -463,14 +486,16 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
         self.spawn_timer += 1
         if self.spawn_timer >= self.spawn_interval: # 如果达到了生成间隔
             self.spawn_timer = 0
-            if len(self.fruits) + len(self.multi_fruits) + len(self.bombs) < self.max_on_screen:
+            room = self.max_on_screen - (len(self.fruits) + len(self.multi_fruits) + len(self.bombs))
+            if room > 0:
                 # 每次多丢几个，不然太无聊了
                 elapsed = time.time() - self.game_start_time
-                level = int(elapsed // 10)
+                level = int(elapsed // self.difficulty_step_time)
                 
                 #这样前期可能一次生成 2~3 个，后面会慢慢变成 5~8 个,逐步增加
                 batch_count = min(2 + level, 8)
-                for _ in range(random.randint(2, batch_count)):
+                # 用剩余空位截断，避免一批直接冲破上限
+                for _ in range(min(random.randint(2, batch_count), room)):
                     self.suiji_shengcheng()
 
         # --- 游戏物体的状态更新与越界判断 ---
@@ -539,7 +564,7 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
                     self.slash_fx.append(Effect_Daoguang(f.x, f.y, random.uniform(0, 360))) # 添加一个刀光特效
                     juice_key = config.get_juice_color(f.fruit_type) # 按水果类型取对应果汁
                     if juice_key:
-                        self.juice_fx.append(Effect_Guozhi(f.x, f.y, config.JUICE_IMAGES[juice_key]))
+                        self.juice_fx.append(Effect_Guozhi(f.x, f.y, juice_key))
 
             # --- 检测与多块水果的碰撞 ---
             for mf in self.multi_fruits:
@@ -556,7 +581,7 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
                     self.slash_fx.append(Effect_Daoguang(mf.x, mf.y, random.uniform(0, 360)))
                     juice_key = config.get_juice_color(mf.fruit_type)
                     if juice_key:
-                        self.juice_fx.append(Effect_Guozhi(mf.x, mf.y, config.JUICE_IMAGES[juice_key]))
+                        self.juice_fx.append(Effect_Guozhi(mf.x, mf.y, juice_key))
 
             # --- 检测与炸弹的碰撞 ---
             for b in self.bombs:
@@ -582,7 +607,6 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
                                 self.game_over_reason = "触碰炸弹次数过多！"
                                 
         #连击特效判断
-        # TODO: 后续把神湾菠萝的爆汁动效改得更逼真一点
         if cut_something and self.mode != 'pk':
             if self.combo in [3, 7, 12] or (self.combo > 12 and self.combo % 5 == 0): # 当达到特定连击数时
                 self.combo_fx.append(Effect_Lianji(self.combo)) # 添加一个连击特效
@@ -596,7 +620,7 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
         
         # --- 依次绘制所有特效 ---
         b_img = config.BLADE_IMAGES.get(self.selected_blade)
-        for fx in self.slash_fx: fx.draw(frame, b_img)
+        for fx in self.slash_fx: fx.draw(frame, b_img, self.selected_blade)
         for fx in self.combo_fx: fx.draw(frame)
 
         half = config.WINDOW_WIDTH // 2
@@ -608,45 +632,25 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
             config.add_cn_text(f"玩家二 得分: {self.p2.score}", (config.WINDOW_WIDTH - 280, 20), font_size=32, color=(100, 200, 255))
             config.add_cn_text(f"时间: {self.get_time_left():.1f}s", (half - 90, 20), font_size=30, color=(255, 255, 255), bg_color=(40, 40, 40))
 
-            if not self.game_over:
-                if self.p1.score > self.p2.score: # 根据分数判断谁领先
-                    config.add_cn_text('领先 ▶', (half - 220, 70), font_size=26, color=(255, 200, 0))
-                elif self.p2.score > self.p1.score:
-                    config.add_cn_text('◀ 领先', (half + 20, 70),  font_size=26, color=(255, 200, 0))
-            else: # PK模式游戏结束的界面
-                ov = frame.copy()
-                cv2.rectangle(ov, (0, 0), (config.WINDOW_WIDTH, config.WINDOW_HEIGHT), (0, 0, 0), -1)
-                cv2.addWeighted(ov, 0.60, frame, 0.40, 0, frame) # 加个半透明遮罩
-                cy = config.WINDOW_HEIGHT // 2
-                if self.winner == 'p1':
-                    config.add_cn_text('🏆  玩家一获胜！', (half - 200, cy - 130), font_size=54, color=(255, 200, 0))
-                elif self.winner == 'p2':
-                    config.add_cn_text('🏆  玩家二获胜！', (half - 200, cy - 130), font_size=54, color=(100, 200, 255))
-                else:
-                    config.add_cn_text('🤝  双方平局！', (half - 150, cy - 130), font_size=54, color=(240, 240, 240))
+            # 输赢遮罩已交给结算界面绘制，这里只显示领先方
+            if self.p1.score > self.p2.score: # 根据分数判断谁领先
+                config.add_cn_text('领先 ▶', (half - 220, 70), font_size=26, color=(255, 200, 0))
+            elif self.p2.score > self.p1.score:
+                config.add_cn_text('◀ 领先', (half + 20, 70),  font_size=26, color=(255, 200, 0))
         else: # 普通模式的UI
             config.add_cn_text(f"得分: {self.score}", (40, 20), font_size=32, color=(0, 255, 0))
             config.add_cn_text(f"连击: {self.combo}", (220, 20), font_size=32, color=(255, 215, 0))
             config.add_cn_text(f"漏掉: {self.missed}/{self.max_missed}", (400, 20), font_size=32, color=(0, 100, 255))
             config.add_cn_text(f"触弹: {self.bombs_hit}/{self.max_bombs_hit}", (620, 20), font_size=32, color=(0, 0, 255))
-
-            if self.game_over: # 普通模式游戏结束的界面
-                ov = frame.copy()
-                cv2.rectangle(ov, (0, 0), (config.WINDOW_WIDTH, config.WINDOW_HEIGHT), (0, 0, 0), -1)
-                cv2.addWeighted(ov, 0.65, frame, 0.35, 0, frame) # 加个半透明遮罩
-                cy = config.WINDOW_HEIGHT // 2
-                config.add_cn_text('Game Over', (half - 160, cy - 140), font_size=64, color=(0, 0, 255))
-                config.add_cn_text(self.game_over_reason, (half - 180, cy - 40), font_size=30, color=(255, 255, 255))
-                config.add_cn_text(f'最终总得分: {self.score}', (half - 130, cy + 30), font_size=34, color=(0, 255, 255))
     
     
     def get_calories(self):
-        return self.total_distance * 0.0005
+        return self.total_distance * CALORIE_PER_PIXEL
     
     def _player(self, hand_idx): # 刀光索引属于哪个玩家：0=玩家1，1=玩家2
         return 0 if hand_idx < (self.max_shou // 2) else 1
 
-    def add_distance (self,dist,hand_idx,max_shou):
+    def add_distance(self, dist, hand_idx):
         if self.mode == 'pk':
             if self._player(hand_idx) == 0:
                 self.p1.distance += dist

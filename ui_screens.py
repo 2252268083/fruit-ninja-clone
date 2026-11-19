@@ -52,6 +52,57 @@ def draw_jindu_tiao(frame, area, progress):
     cv2.rectangle(frame, (bx, by), (bx + int(bw * progress), by + bh), (0, 220, 0), -1)
     cv2.rectangle(frame, (bx, by), (bx + bw, by + bh), (200, 200, 200), 2)
 
+
+def _detect_tip(frame):
+    """按推理宽度缩小后再检测（归一化坐标与分辨率无关），返回屏幕像素坐标或 None"""
+    w = config.get_infer_width()
+    h = max(2, int(round(frame.shape[0] * w / frame.shape[1])))
+    try:
+        lm_list, _ = vision_engine.detect_hands(
+            cv2.cvtColor(cv2.resize(frame, (w, h)), cv2.COLOR_BGR2RGB))
+    except Exception:
+        # 识别引擎异常时菜单只是选不中，不能直接崩掉整个程序
+        return None
+    if not lm_list:
+        return None
+    tip = lm_list[0][8]
+    return int(tip.x * config.WINDOW_WIDTH), int(tip.y * config.WINDOW_HEIGHT)
+
+
+def _update_hover(areas, sx, sy, hover_time, dt):
+    """用本轮指尖位置更新悬停计时，返回本轮悬停项（不在任何区域则为 None）"""
+    now_hover = None
+    for k, a in areas.items():
+        if a['x'] <= sx <= a['x'] + a['w'] and a['y'] <= sy <= a['y'] + a['h']:
+            now_hover = k
+            hover_time[k] += dt
+        else:
+            hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
+    return now_hover
+
+
+def _decay_hover(hover_time, dt):
+    for k in hover_time:
+        hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
+
+
+def _draw_hover_box(frame, a, is_hover, progress, idle_color=(160, 160, 160),
+                    fill_color=(0, 70, 0)):
+    x, y, w, h = a['x'], a['y'], a['w'], a['h']
+    b_color = (0, 255, 0) if is_hover else idle_color
+    cv2.rectangle(frame, (x, y), (x + w, y + h), b_color, 5 if is_hover else 2)
+    if is_hover:
+        hl = frame.copy()
+        cv2.rectangle(hl, (x, y), (x + w, y + h), fill_color, -1)
+        cv2.addWeighted(hl, 0.25, frame, 0.75, 0, frame)
+    if is_hover and progress > 0:
+        draw_jindu_tiao(frame, a, progress)
+
+
+def _draw_tip(frame, sx, sy, radius=22):
+    cv2.circle(frame, (sx, sy), radius, (0, 255, 255), 3)
+    cv2.circle(frame, (sx, sy), max(4, radius - 10), (0, 255, 0), cv2.FILLED)
+
 def xuanze_moshi_ui(cap) -> str:
     #选模式的界面
     box_w, box_h = 320, 280
@@ -101,6 +152,18 @@ def xuanze_moshi_ui(cap) -> str:
         frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
         if config.SETTINGS["camera"].get("mirror", True):
             frame = cv2.flip(frame, 1)
+
+        # 先在未压暗的原帧上识别，再更新悬停状态：本帧的框用本帧的手，不再慢一帧
+        tip = _detect_tip(frame)
+        if tip:
+            sx, sy = my_smoother.smooth(*tip)
+            now_hover = _update_hover(areas, sx, sy, hover_time, dt)
+        else:
+            my_smoother.reset()
+            _decay_hover(hover_time, dt)
+            now_hover = None
+            sx = sy = None
+        confirmed = now_hover if (now_hover and hover_time[now_hover] >= HOVER_SECONDS) else None
         
         #搞个半透明遮罩看起来高级点
         zhezhao = frame.copy()
@@ -112,59 +175,23 @@ def xuanze_moshi_ui(cap) -> str:
 
         #画框框
         for k, a in areas.items():
-            x, y, w, h = a['x'], a['y'], a['w'], a['h']
             is_hover = (now_hover == k)
-            p = min(1.0, hover_time[k] / HOVER_SECONDS) if is_hover else 0
-            b_color = (0, 255, 0) if is_hover else (160, 160, 160)
-            t_thick = 5 if is_hover else 2
-            
-            cv2.rectangle(frame, (x, y), (x + w, y + h), b_color, t_thick)
-            if is_hover:
-                hl = frame.copy()
-                cv2.rectangle(hl, (x, y), (x + w, y + h), (0, 70, 0), -1)
-                cv2.addWeighted(hl, 0.25, frame, 0.75, 0, frame)
-
-            config.add_cn_text(labels[k], (x + 30, y + 70),  font_size=44, color=colors[k])
-            config.add_cn_text(descs[k],  (x + 20, y + 155), font_size=26, color=(200, 200, 200))
-
-            if is_hover and p > 0:
-                draw_jindu_tiao(frame, a, p)
+            p = min(1.0, hover_time[k] / HOVER_SECONDS) if is_hover else 0.0
+            _draw_hover_box(frame, a, is_hover, p)
+            config.add_cn_text(labels[k], (a['x'] + 30, a['y'] + 70),  font_size=44, color=colors[k])
+            config.add_cn_text(descs[k],  (a['x'] + 20, a['y'] + 155), font_size=26, color=(200, 200, 200))
 
         config.add_cn_text('快捷键: 1=单手  2=双手  3=双人PK  | Esc键退出游戏',
                            (config.WINDOW_WIDTH//2 - 320, config.WINDOW_HEIGHT - 55),
                            font_size=24, color=(140, 140, 140))
 
-        #找手
-        rgb_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        lm_list, _ = vision_engine.detect_hands(rgb_img)
-        now_hover = None
-        
-        if lm_list:
-            #拿食指尖(点8)
-            tip = lm_list[0][8]
-            rx, ry = int(tip.x * config.WINDOW_WIDTH), int(tip.y * config.WINDOW_HEIGHT)
-            sx, sy = my_smoother.smooth(rx, ry)
-            
-            #画个圈提示位置
-            cv2.circle(frame, (sx, sy), 22, (0, 255, 255), 3)
-            cv2.circle(frame, (sx, sy), 12, (0, 255, 0), cv2.FILLED)
-            
-            for k, a in areas.items():
-                if a['x'] <= sx <= a['x'] + a['w'] and a['y'] <= sy <= a['y'] + a['h']:
-                    now_hover = k
-                    hover_time[k] += dt
-                    if hover_time[k] >= HOVER_SECONDS:
-                        config.flush_cn_texts(frame)
-                        return k
-                else:
-                    hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
-        else:
-            my_smoother.reset()
-            for k in hover_time: 
-                hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
+        if sx is not None:
+            _draw_tip(frame, sx, sy)
 
         config.flush_cn_texts(frame)
         cv2.imshow('Swift-Fruit-Slice', frame)
+        if confirmed:
+            return confirmed
         
         key = cv2.waitKey(1) & 0xFF
         if _window_closed(): return 'quit'
@@ -184,6 +211,15 @@ def xuanze_daoguang_ui(cap) -> str:
     now_hover = None
     my_smoother      = math_utils.FingerSmoother(method='ewma', alpha=0.4, adaptive=True)
     labels        = {'dao1': '经典冷冽刀光', 'dao2': '狂暴烈焰刀光'}
+
+    # 素材尺寸固定，进循环前缩放一次，避免每帧 resize
+    sized_dao = {}
+    for k, a in areas.items():
+        img = config.BLADE_IMAGES.get(k)
+        if img is not None:
+            dh, dw = img.shape[:2]
+            sc = min((a['w'] - 40) / dw, (a['h'] - 40) / dh, 1.0)
+            sized_dao[k] = cv2.resize(img, (int(dw * sc), int(dh * sc)))
 
     while True:
         frame = _read_frame(cap)
@@ -209,6 +245,18 @@ def xuanze_daoguang_ui(cap) -> str:
         frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
         if config.SETTINGS["camera"].get("mirror", True):
             frame = cv2.flip(frame, 1)
+
+        # 先检测再画框，保证高亮与手指同步
+        tip = _detect_tip(frame)
+        if tip:
+            sx, sy = my_smoother.smooth(*tip)
+            now_hover = _update_hover(areas, sx, sy, hover_time, dt)
+        else:
+            my_smoother.reset()
+            _decay_hover(hover_time, dt)
+            now_hover = None
+            sx = sy = None
+        confirmed = now_hover if (now_hover and hover_time[now_hover] >= HOVER_SECONDS) else None
         
         zhezhao = frame.copy()
         cv2.rectangle(zhezhao, (0, 0), (config.WINDOW_WIDTH, config.WINDOW_HEIGHT), (0, 0, 0), -1)
@@ -218,59 +266,27 @@ def xuanze_daoguang_ui(cap) -> str:
         config.add_cn_text(f'悬停食指 {HOVER_SECONDS:g} 秒确认选择', (config.WINDOW_WIDTH//2 - 200, 148), font_size=34, color=(200, 200, 200))
 
         for k, a in areas.items():
-            x, y, w, h = a['x'], a['y'], a['w'], a['h']
             is_hover = (now_hover == k)
-            p = min(1.0, hover_time[k] / HOVER_SECONDS) if is_hover else 0
-            b_color   = (0, 255, 0) if is_hover else (200, 200, 200)
-            t_thick    = 5 if is_hover else 2
-            
-            cv2.rectangle(frame, (x, y), (x + w, y + h), b_color, t_thick)
-            if is_hover:
-                hl = frame.copy()
-                cv2.rectangle(hl, (x, y), (x + w, y + h), (0, 80, 0), -1)
-                cv2.addWeighted(hl, 0.25, frame, 0.75, 0, frame)
+            p = min(1.0, hover_time[k] / HOVER_SECONDS) if is_hover else 0.0
+            _draw_hover_box(frame, a, is_hover, p, idle_color=(200, 200, 200),
+                            fill_color=(0, 80, 0))
 
-            dao_img = config.BLADE_IMAGES.get(k)
+            dao_img = sized_dao.get(k)
             if dao_img is not None:
-                dh, dw = dao_img.shape[:2]
-                sc = min((w - 40) / dw, (h - 40) / dh, 1.0)
-                sized_dao = cv2.resize(dao_img, (int(dw * sc), int(dh * sc)))
-                config.overlay_image(frame, sized_dao, x + w // 2, y + h // 2, 0, 1.0)
+                config.overlay_image(frame, dao_img, a['x'] + a['w'] // 2, a['y'] + a['h'] // 2, 0, 1.0)
 
-            config.add_cn_text(labels[k], (x + 30, y - 55), font_size=30, color=(255, 255, 255))
-            if is_hover and p > 0:
-                draw_jindu_tiao(frame, a, p)
+            config.add_cn_text(labels[k], (a['x'] + 30, a['y'] - 55), font_size=30, color=(255, 255, 255))
 
         config.add_cn_text('快捷键: 1=样式一  2=样式二', (config.WINDOW_WIDTH//2 - 160, config.WINDOW_HEIGHT - 55), font_size=24, color=(140, 140, 140))
 
-        rgb_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        lm_list, _ = vision_engine.detect_hands(rgb_img)
-        now_hover = None
-        
-        if lm_list:
-            tip = lm_list[0][8]
-            rx, ry = int(tip.x * config.WINDOW_WIDTH), int(tip.y * config.WINDOW_HEIGHT)
-            sx, sy = my_smoother.smooth(rx, ry)
-            
-            cv2.circle(frame, (sx, sy), 22, (0, 255, 255), 3)
-            cv2.circle(frame, (sx, sy), 12, (0, 255, 0), cv2.FILLED)
-            
-            for k, a in areas.items():
-                if a['x'] <= sx <= a['x'] + a['w'] and a['y'] <= sy <= a['y'] + a['h']:
-                    now_hover = k
-                    hover_time[k] += dt
-                    if hover_time[k] >= HOVER_SECONDS:
-                        config.flush_cn_texts(frame)
-                        return k
-                else:
-                    hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
-        else:
-            my_smoother.reset()
-            for k in hover_time: 
-                hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
+        if sx is not None:
+            _draw_tip(frame, sx, sy)
 
         config.flush_cn_texts(frame)
         cv2.imshow('Swift-Fruit-Slice', frame)
+        if confirmed:
+            return confirmed
+
         key = cv2.waitKey(1) & 0xFF
         if _window_closed(): return 'quit'
         if key == ord('1'): return 'dao1'
@@ -302,18 +318,36 @@ def jiesuan_ui(cap, game_obj) -> str:
                 return None
             cv2.imshow('Swift-Fruit-Slice', _placeholder('结算界面取不到画面，正在重试...'))
             key = cv2.waitKey(1) & 0xFF
-            if _window_closed() or key == ord('q') or key == 27:
-                return None
+            if _window_closed():
+                return 'menu'   # 关窗=返回上一级
+            if key == ord('q') or key == 27:
+                return 'quit'
             continue
         fail_since = None
 
         now_t = time.time()
         dt = now_t - last_t
         last_t = now_t
+        waited = now_t - start_t > wait_s
 
         frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
         if config.SETTINGS["camera"].get("mirror", True):
             frame = cv2.flip(frame, 1)
+
+        # 选项出现后才检测手；先检测再画，高亮与本帧同步
+        sx = sy = None
+        now_hover = None
+        confirmed = None
+        if waited:
+            tip = _detect_tip(frame)
+            if tip:
+                sx, sy = my_smoother.smooth(*tip)
+                now_hover = _update_hover(areas, sx, sy, hover_time, dt)
+                if now_hover and hover_time[now_hover] >= HOVER_SECONDS:
+                    confirmed = now_hover
+            else:
+                my_smoother.reset()
+                _decay_hover(hover_time, dt)
         
         zhezhao = frame.copy()
         cv2.rectangle(zhezhao, (0, 0), (config.WINDOW_WIDTH, config.WINDOW_HEIGHT), (0, 0, 0), -1)
@@ -346,50 +380,32 @@ def jiesuan_ui(cap, game_obj) -> str:
             config.add_cn_text(f' 本局累计舒展肩颈，共消耗热量：{cal:.1f} 卡路里', (config.WINDOW_WIDTH//2 - 280, 320), 28, (255, 150, 50))
 
 
-        #延迟显示选项
-        if time.time() - start_t > wait_s:
+        if waited:
             for k, a in areas.items():
-                x, y, w, h = a['x'], a['y'], a['w'], a['h']
-                p = min(1.0, hover_time[k] / HOVER_SECONDS)
-                b_color = (0, 255, 0) if p > 0 else (100, 100, 100)
-                cv2.rectangle(frame, (x, y), (x + w, y + h), b_color, 3)
-                
-                txt = '重新开始' if k == 'restart' else '主菜单'
-                config.add_cn_text(txt, (x + 50, y + 110), 40, (255, 255, 255))
-                if p > 0:
-                    draw_jindu_tiao(frame, a, p)
+                is_hover = (now_hover == k)
+                # 只有当前真的悬停才显示进度条：手指离开后不再留下绿框残影
+                p = min(1.0, hover_time[k] / HOVER_SECONDS) if is_hover else 0.0
+                _draw_hover_box(frame, a, is_hover, p, idle_color=(100, 100, 100))
 
-            rgb_img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            lm_list, _ = vision_engine.detect_hands(rgb_img)
-            
-            if lm_list:
-                tip = lm_list[0][8]
-                sx, sy = my_smoother.smooth(int(tip.x * config.WINDOW_WIDTH), int(tip.y * config.WINDOW_HEIGHT))
+                txt = '重新开始' if k == 'restart' else '主菜单'
+                config.add_cn_text(txt, (a['x'] + 50, a['y'] + 110), 40, (255, 255, 255))
+
+            if sx is not None:
                 cv2.circle(frame, (sx, sy), 15, (0, 255, 255), -1)
-                
-                for k, a in areas.items():
-                    if a['x'] <= sx <= a['x'] + a['w'] and a['y'] <= sy <= a['y'] + a['h']:
-                        hover_time[k] += dt
-                        if hover_time[k] >= HOVER_SECONDS:
-                            config.flush_cn_texts(frame)
-                            return k
-                    else:
-                        hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
-            else:
-                my_smoother.reset()
-                for k in hover_time:
-                    hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
         else:
-            shengyu = int(wait_s - (time.time() - start_t)) + 1
+            shengyu = int(wait_s - (now_t - start_t)) + 1
             config.add_cn_text(f'即将显示选项... {shengyu}', (config.WINDOW_WIDTH//2 - 130, 450), 30, (150, 150, 150))
         
         config.flush_cn_texts(frame)
         cv2.imshow('Swift-Fruit-Slice', frame)
+        if confirmed:
+            return confirmed
 
         key = cv2.waitKey(1) & 0xFF
-        if _window_closed(): return None
-        # 快捷键同样要过 2 秒防误触，避免手还在挥就误触重开
-        if time.time() - start_t > wait_s:
+        if _window_closed(): return 'menu'   # 关窗=返回主菜单，不再当成设备故障
+        # Q / Esc 是"立刻想走"的语义，不受 2 秒防误触限制
+        if key == ord('q') or key == 27: return 'quit'
+        # R/M 仍过 2 秒防误触，避免手还在挥就误触重开
+        if waited:
             if key == ord('r'): return 'restart'
             if key == ord('m'): return 'menu'
-            if key == ord('q') or key == 27: return 'quit'

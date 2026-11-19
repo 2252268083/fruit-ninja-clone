@@ -18,10 +18,11 @@ def get_my_logger(name="SwiftFruitSlice"):
         fm = logging.Formatter('[%(levelname)s] %(asctime)s - %(message)s',
                                datefmt='%Y-%m-%d %H:%M:%S')
 
-        # 1. 控制台输出
-        ch = logging.StreamHandler(sys.stdout)
-        ch.setFormatter(fm)
-        my_log.addHandler(ch)
+        # 1. 控制台输出（PyInstaller windowed 打包后 sys.stdout 是 None，不能直接交给 StreamHandler）
+        if sys.stdout is not None:
+            ch = logging.StreamHandler(sys.stdout)
+            ch.setFormatter(fm)
+            my_log.addHandler(ch)
 
         # 2. 文件输出：写到 exe 旁边的 logs/game.log，方便打包交付后远程查问题
         #    单文件超过 1MB 自动轮转成 game.log.1 / .2 / .3，防止无限变大

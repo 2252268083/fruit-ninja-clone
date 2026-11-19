@@ -6,6 +6,7 @@ import random
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from logger import my_log
+from fonts import get_ziti
 
 def get_exe_dir():
     if getattr(sys, 'frozen', False):
@@ -30,25 +31,36 @@ my_setting_file = os.path.join(get_exe_dir(), 'settings.yaml')
 def duqu_peizhi():#默认配置
     # 默认给个配置
     mo_ren = {
-        "camera": {"index": 0, "width": 1280, "height": 720, "mirror": True},
+        "camera": {"index": 0, "width": 1280, "height": 720, "fps": 60, "mirror": True},
         "game": {
-            "window_width": 1280, 
+            "window_width": 1280,
             "window_height": 720,
-            "spawn_interval": 12, # 水果生成速度
-            "max_on_screen": 15,#当次的数量多少
-            "total_time" : 30,#双人pk的时候，时长调整
-            "fruit_theme": "default" ,# 新增：默认主题开关
-            "ads_scale":0.7
+            "spawn_interval": 12,  # 水果生成速度
+            "min_spawn_interval": 4,  # 难度提升后允许的最小生成间隔
+            "max_on_screen": 12,  # 初始同时存在的物体数
+            "max_on_screen_cap": 25,  # 难度提升后物体数上限
+            "difficulty_step_time": 10,  # 每隔多少秒提升一次难度
+            "total_time": 30,  # 双人pk的时候，时长调整
+            "fruit_theme": "default",  # 默认主题开关
+            "max_missed": 15,  # 最大允许漏掉数
+            "max_bombs_hit": 4,  # 最大允许碰到炸弹数
+            "bomb_chance": 0.22,  # 生成炸弹的概率
+            "deadly_chance": 0.25,  # 生成致命炸弹的概率
+            "multi_chance": 0.15,  # 生成多块水果的概率
+            "max_consec_bombs": 2,  # 最大连续生成炸弹数
         },
         "ai": {
-            "max_hands": 4#最高识别几只手
+            "max_hands": 4,  # 最高识别几只手
+            "delegate": "auto",  # auto=优先 GPU，失败退回 CPU
+            "infer_width": 320,  # 推理输入宽度（高度按摄像头比例自动算）
         },
         "paths": {
             "assets_dir": "assets",
             "models_dir": "models",
             "model_name": "hand_landmarker.task",
             "bgm_name": "1.mp3"
-        }
+        },
+        "ads": {"scale": 0.7, "custom_scales": {}},
     }
     if not os.path.exists(my_setting_file):
         try:
@@ -108,31 +120,18 @@ except ImportError:
 WINDOW_WIDTH  = SETTINGS["game"]["window_width"]
 WINDOW_HEIGHT = SETTINGS["game"]["window_height"]
 
+
+def get_infer_width():
+    """推理输入宽度：只配宽度，高度按真实画面比例推导"""
+    return max(64, int(SETTINGS["ai"].get("infer_width", 320)))
+
+
+def get_preheat_shape():
+    """预热零图尺寸：宽取配置，高按 16:9 推导（正式推理按摄像头真实比例）"""
+    w = get_infer_width()
+    return max(2, int(round(w * 9 / 16))), w
+
 #处理中文显示的（OpenCV直接写中文会乱码 转成PIL画）
-
-_ziti_huancun = {}
-
-def get_ziti(size: int) -> ImageFont.ImageFont:
-    if size in _ziti_huancun:
-        return _ziti_huancun[size]
-    # 随便找几个系统自带的字体试试
-    ziti_paths = [
-        "C:/Windows/Fonts/msyh.ttc",
-        "C:/Windows/Fonts/msyhbd.ttc",
-        "C:/Windows/Fonts/simhei.ttf",
-        "C:/Windows/Fonts/simsun.ttc",
-    ]
-    for p in ziti_paths:
-        if os.path.exists(p):
-            try:
-                font = ImageFont.truetype(p, size)
-                _ziti_huancun[size] = font
-                return font
-            except:
-                continue
-    font = ImageFont.load_default()
-    _ziti_huancun[size] = font
-    return font
 
 _wenzi_dui = []#文字堆
 
@@ -140,14 +139,30 @@ def add_cn_text(text: str, pos: tuple, font_size: int = 32,#opencv不能绘画
                 color=(255, 255, 255), bg_color=None, padding: int = 8):
     _wenzi_dui.append((text, pos, font_size, color, bg_color, padding))
 
-def flush_cn_texts(frame: np.ndarray):#解决了中文不能绘画上去的问题
-    global _wenzi_dui
-    if not _wenzi_dui: return
-    # 转RGB 不然颜色是反的
+def _text_rect(text, pos, font, bg_c, pad, w, h):
+    """文字（含背景框留白）在画面内的裁剪矩形；完全在画面外返回 None"""
+    x, y = pos
+    try:
+        x0, y0, x1, y1 = font.getbbox(text)
+    except Exception:
+        return None
+    r = [x + x0, y + y0, x + x1, y + y1]
+    if bg_c is not None:
+        r = [r[0] - pad, r[1] - pad, r[2] + pad, r[3] + pad]
+    rx1, ry1 = max(0, int(r[0])), max(0, int(r[1]))
+    # PIL 的 rectangle 两端都包含，右/下各多留 1px，避免裁掉边框最后一行一列
+    rx2 = min(w, int(r[2] + 0.999) + 1)
+    ry2 = min(h, int(r[3] + 0.999) + 1)
+    if rx2 <= rx1 or ry2 <= ry1:
+        return None
+    return [rx1, ry1, rx2, ry2]
+
+
+def _flush_full(frame, items):
+    """整幅转换的兜底路径（矩形异常或碎片过多时使用）"""
     pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(pil_img)
-    
-    for text, (x, y), f_size, color, bg_c, pad in _wenzi_dui:
+    for text, (x, y), f_size, color, bg_c, pad in items:
         font = get_ziti(f_size)
         if bg_c is not None:
             bbox = draw.textbbox((x, y), text, font=font)
@@ -156,9 +171,64 @@ def flush_cn_texts(frame: np.ndarray):#解决了中文不能绘画上去的问�
                 fill=(bg_c[2], bg_c[1], bg_c[0])
             )
         draw.text((x, y), text, font=font, fill=(color[2], color[1], color[0]))
-        
-    _wenzi_dui = []
     np.copyto(frame, cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR))
+
+
+def flush_cn_texts(frame: np.ndarray):#解决了中文不能绘画上去的问题
+    global _wenzi_dui
+    items = _wenzi_dui
+    if not items: return
+    _wenzi_dui = []
+
+    h, w = frame.shape[:2]
+    rects = []
+    for text, pos, f_size, color, bg_c, pad in items:
+        r = _text_rect(text, pos, get_ziti(f_size), bg_c, pad, w, h)
+        if r is None:
+            _flush_full(frame, items)
+            return
+        rects.append(r)
+
+    # 相交的矩形合并，减少转换次数
+    changed = True
+    while changed:
+        changed = False
+        merged = []
+        for r in rects:
+            for o in merged:
+                if r[0] < o[2] and o[0] < r[2] and r[1] < o[3] and o[1] < r[3]:
+                    o[0], o[1] = min(o[0], r[0]), min(o[1], r[1])
+                    o[2], o[3] = max(o[2], r[2]), max(o[3], r[3])
+                    changed = True
+                    break
+            else:
+                merged.append(r)
+        rects = merged
+
+    # 碎片太多时整幅转换更划算
+    if not rects or len(rects) > 8:
+        _flush_full(frame, items)
+        return
+
+    for rx1, ry1, rx2, ry2 in rects:
+        roi = frame[ry1:ry2, rx1:rx2]
+        pil_img = Image.fromarray(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+        draw = ImageDraw.Draw(pil_img)
+        rw, rh = rx2 - rx1, ry2 - ry1
+        for text, (x, y), f_size, color, bg_c, pad in items:
+            lx, ly = x - rx1, y - ry1
+            font = get_ziti(f_size)
+            bbox = draw.textbbox((lx, ly), text, font=font)
+            # 只画与当前 ROI 有交集的文字
+            if bbox[2] <= 0 or bbox[0] >= rw or bbox[3] <= 0 or bbox[1] >= rh:
+                continue
+            if bg_c is not None:
+                draw.rectangle(
+                    [bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad],
+                    fill=(bg_c[2], bg_c[1], bg_c[0])
+                )
+            draw.text((lx, ly), text, font=font, fill=(color[2], color[1], color[0]))
+        np.copyto(roi, cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR))
 
 
 
@@ -218,11 +288,11 @@ if SUIGUO_ZHUTI == "ads":
     FRUIT_IMAGES = load_dynamic_ads(
         SETTINGS["paths"]["assets_dir"],
         "ads",
-        scale=SETTINGS.get("ads", {}).get("scale", SETTINGS["game"].get("ads_scale", 0.75)),
+        scale=SETTINGS.get("ads", {}).get("scale", 0.7),
         custom_scales=SETTINGS.get("ads", {}).get("custom_scales", {})
     )
 
-    print("广告素材加载成功：", FRUIT_IMAGES.keys())
+    my_log.info(f"广告素材加载成功：{list(FRUIT_IMAGES.keys())}")
 
     FRUIT_TYPES = list(FRUIT_IMAGES.keys())
     if not FRUIT_TYPES:
@@ -351,13 +421,17 @@ def load_yinxiao():#读取打击特效时的音效
     sfx = {}
     if not HAS_SOUND: return sfx
     base_dir = os.path.join(get_base_dir(), SETTINGS["paths"]["assets_dir"], 'yinxiao')
+    # 两个音效分别加载：一个失败不影响另一个
     try:
         sp = os.path.join(base_dir, 'qieshuiguoyinxiao.mp3')
         if os.path.exists(sp): sfx['slice'] = pygame.mixer.Sound(sp)
+    except Exception as e:
+        my_log.warning(f"切片音效加载失败：{e}")
+    try:
         ep = os.path.join(base_dir, 'baozhayinxiao.mp3')
         if os.path.exists(ep): sfx['explosion'] = pygame.mixer.Sound(ep)
-    except Exception:
-        pass
+    except Exception as e:
+        my_log.warning(f"爆炸音效加载失败：{e}")
     return sfx
 
 def play_bgm():#播放背景音乐
@@ -403,20 +477,51 @@ def get_juice_color(fruit_type):
     # 找不到就随便给个果汁
     return random.choice(list(JUICE_IMAGES.keys())) if JUICE_IMAGES else None
 
-def overlay_image(bg: np.ndarray, fg: np.ndarray, x: int, y: int, rotation: float = 0, alpha_scale: float = 1.0):
+_ROT_CACHE = {}
+
+
+def _rotate_cached(fg, rotation, cache_key):
+    """旋转带透明通道的贴图：角度按 5° 量化缓存，避免水果每帧重复 warpAffine"""
+    q = int(round(rotation / 5.0)) % 72
+    key = (cache_key, fg.shape, q)
+    ov = _ROT_CACHE.get(key)
+    if ov is not None:
+        return ov
+
+    h, w = fg.shape[:2]
+    cx, cy = w // 2, h // 2
+    M = cv2.getRotationMatrix2D((cx, cy), q * 5.0, 1.0)
+    cos, sin = abs(M[0, 0]), abs(M[0, 1])
+    nw = int(h * sin + w * cos)
+    nh = int(h * cos + w * sin)
+    M[0, 2] += nw / 2 - cx
+    M[1, 2] += nh / 2 - cy
+    ov = cv2.warpAffine(fg, M, (nw, nh), borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+    while len(_ROT_CACHE) >= 512:   # 逐个淘汰最旧的，避免整体清空造成周期性卡顿
+        _ROT_CACHE.pop(next(iter(_ROT_CACHE)), None)
+    _ROT_CACHE[key] = ov
+    return ov
+
+
+def overlay_image(bg: np.ndarray, fg: np.ndarray, x: int, y: int, rotation: float = 0,
+                  alpha_scale: float = 1.0, cache_key=None):
     # 把带透明通道的PNG贴到背景上，带旋转
     if fg is None: return#如果没有照片就无
     h, w = fg.shape[:2]#获取宽高
-    ov = fg.copy()
     if rotation != 0:#如果旋转，计算转后大小
-        cx, cy = w // 2, h // 2
-        M = cv2.getRotationMatrix2D((cx, cy), rotation, 1.0)
-        cos, sin = abs(M[0, 0]), abs(M[0, 1])
-        nw = int(h * sin + w * cos)
-        nh = int(h * cos + w * sin)
-        M[0, 2] += nw / 2 - cx
-        M[1, 2] += nh / 2 - cy
-        ov = cv2.warpAffine(ov, M, (nw, nh), borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+        if cache_key is not None:
+            ov = _rotate_cached(fg, rotation, cache_key)
+        else:
+            cx, cy = w // 2, h // 2
+            M = cv2.getRotationMatrix2D((cx, cy), rotation, 1.0)
+            cos, sin = abs(M[0, 0]), abs(M[0, 1])
+            nw = int(h * sin + w * cos)
+            nh = int(h * cos + w * sin)
+            M[0, 2] += nw / 2 - cx
+            M[1, 2] += nh / 2 - cy
+            ov = cv2.warpAffine(fg, M, (nw, nh), borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+    else:
+        ov = fg
         
     oh, ow = ov.shape[:2]#获取图片的宽和高
     x1, y1 = int(x - ow // 2), int(y - oh // 2)#左上角的坐标
@@ -432,17 +537,18 @@ def overlay_image(bg: np.ndarray, fg: np.ndarray, x: int, y: int, rotation: floa
 
     crop_ov = ov[oy1:oy2, ox1:ox2]#剪去超出的部分剩下的
     crop_bg = bg[by1:by2, bx1:bx2]#背景:要被覆盖的区域
-    
+
+    # numpy 向量化混合，替代原来逐通道的 Python 循环
     if crop_ov.shape[2] == 4:#判断图片透明通道
-        alpha = (crop_ov[:, :, 3] / 255.0) * alpha_scale#取出透明度
-        for c in range(3):#对三个通道混合
-            crop_bg[:, :, c] = (1.0 - alpha) * crop_bg[:, :, c] + alpha * crop_ov[:, :, c]
+        alpha = (crop_ov[:, :, 3:4].astype(np.float32) / 255.0) * alpha_scale
+        crop_bg[:] = (crop_bg.astype(np.float32) * (1.0 - alpha)
+                      + crop_ov[:, :, :3].astype(np.float32) * alpha).astype(np.uint8)
     else:
         if alpha_scale == 1.0:
             bg[by1:by2, bx1:bx2] = crop_ov#完全覆盖
         else:
-            for c in range(3):#半透明覆盖
-                crop_bg[:, :, c] = (1.0 - alpha_scale) * crop_bg[:, :, c] + alpha_scale * crop_ov[:, :, c]
+            crop_bg[:] = (crop_bg.astype(np.float32) * (1.0 - alpha_scale)
+                          + crop_ov.astype(np.float32) * alpha_scale).astype(np.uint8)
 
 # 全局预加载
 

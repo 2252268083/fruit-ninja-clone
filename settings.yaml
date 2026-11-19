@@ -20,12 +20,17 @@ game:
   difficulty_step_time: 10  # 每隔多少秒提升一次难度
   total_time: 30            # 双人 PK 模式总时长（秒）
   fruit_theme: "default"    # 水果主题：default=普通水果；ads=广告图标
+  max_missed: 15            # 漏掉多少个水果判定游戏结束
+  max_bombs_hit: 4          # 切到多少次普通炸弹判定游戏结束
+  bomb_chance: 0.22         # 每次生成时出炸弹的概率
+  deadly_chance: 0.25       # 出炸弹时是致命炸弹的概率
+  multi_chance: 0.15        # 每次生成时出多块水果的概率
+  max_consec_bombs: 2       # 最多连续生成几个炸弹（防止满屏炸弹）
 
 ai:
   max_hands: 6         # 最多同时识别几只手（越大越吃性能）
   delegate: "auto"     # 推理设备：auto=优先 GPU，失败自动退回 CPU；cpu=强制 CPU
-  infer_width: 320     # 推理输入宽度（越小越快，越大略准）
-  infer_height: 180    # 推理输入高度（320x180 与摄像头 16:9 一致，避免画面被压扁）
+  infer_width: 320     # 推理输入宽度（越小越快）；高度按摄像头画面比例自动计算
 
 paths:
   assets_dir: "assets"                # 素材根目录（相对 exe 所在目录）

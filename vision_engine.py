@@ -160,7 +160,9 @@ def ensure_init(progress=None):
             progress(3)
 
         # 预热：第一次推理会把底层初始化全部做完，之后就是纯推理
-        dummy = np.zeros((240, 320, 3), dtype=np.uint8)
+        # 尺寸与正式推理保持一致（宽取配置，高按 16:9 推导），避免首帧才建图
+        ph, pw = config.get_preheat_shape()
+        dummy = np.zeros((ph, pw, 3), dtype=np.uint8)
         detect_hands(dummy)
         if progress:
             progress(4)
