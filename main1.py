@@ -139,6 +139,7 @@ class CaptureThread(threading.Thread):
         self.mirror = mirror
         self.running = True
         self.fps = 0.0
+        self.failed = False    # 摄像头断开/持续读不到画面时置 True，主线程据此提示退出
 
         self._lock = threading.Lock()
         self._display = None   # 显示用大图（给主线程画游戏）
@@ -146,12 +147,27 @@ class CaptureThread(threading.Thread):
         self._seq = 0          # 帧序号，主线程据此判断有没有新画面
 
     def run(self):
+        from logger import my_log
         count, t0 = 0, time.time()
+        fail_since = None
         while self.running:
-            ret, frame = self.cap.read()
-            if not ret:
+            try:
+                ret, frame = self.cap.read()
+            except Exception as e:
+                ret, frame = False, None
+                my_log.warning(f"读取摄像头画面异常：{e}")
+            if not ret or frame is None:
+                # 摄像头被拔掉/被其他程序占用：持续读不到就判定断开，避免永久停在最后一帧
+                if fail_since is None:
+                    fail_since = time.time()
+                elif time.time() - fail_since > 3.0:
+                    self.failed = True
+                    self.running = False
+                    my_log.error("摄像头连续 3 秒读不到画面，判定为设备断开")
+                    break
                 time.sleep(0.005)
                 continue
+            fail_since = None
 
             if self.mirror:
                 frame = cv2.flip(frame, 1)
@@ -202,17 +218,25 @@ class VisionThread(threading.Thread):
         self.max_hands = max_hands
         self.running = True
         self.fps = 0.0
+        self.failed = False    # 识别线程彻底不可用时置 True
 
         self._lock = threading.Lock()
         self._hands = []      # 归一化食指指尖坐标 [(x, y), ...]
 
     def run(self):
+        from logger import my_log
         import vision_engine  # 延迟导入，避免阻塞主线程启动
         # 预热模型（第一次调用会加载，耗时但只一次）
-        vision_engine.detect_hands(
-            np.zeros((self.capture.infer_h, self.capture.infer_w, 3), dtype=np.uint8))
+        try:
+            vision_engine.detect_hands(
+                np.zeros((self.capture.infer_h, self.capture.infer_w, 3), dtype=np.uint8))
+        except Exception as e:
+            self.failed = True
+            my_log.exception(f"手势识别初始化失败：{e}")
+            return
 
         last_seq = -1
+        err_count = 0
         count, t0 = 0, time.time()
         while self.running:
             small, seq = self.capture.latest_small()
@@ -223,7 +247,20 @@ class VisionThread(threading.Thread):
             last_seq = seq
 
             rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
-            lm_list, _ = vision_engine.detect_hands(rgb)
+            try:
+                lm_list, _ = vision_engine.detect_hands(rgb)
+            except Exception as e:
+                # 单帧推理失败不算致命，连续失败才停止，避免线程静默死掉、游戏"看起来正常但切不动"
+                err_count += 1
+                if err_count <= 3:
+                    my_log.warning(f"手势识别异常（第 {err_count} 次）：{e}")
+                if err_count > 60:
+                    self.failed = True
+                    my_log.error("手势识别连续失败，已停止识别线程")
+                    break
+                time.sleep(0.05)
+                continue
+            err_count = 0
 
             # 只取食指指尖（索引8），归一化坐标 0~1
             hands = [(lm[8].x, lm[8].y) for lm in (lm_list or [])[:self.max_hands]]
@@ -425,11 +462,25 @@ def main():
             # ====================================
 
             frame_counter = 0   # 用于隔帧更新物理（保持手感）
+            game_err = None     # 设备类故障，退出后给用户中文提示
+            t_play_start = time.time()
 
             while not game.game_over:
+                # ---------- 设备故障检测：线程静默死掉时给出明确提示，而不是卡在最后一帧 ----------
+                if capture_thread.failed:
+                    game_err = "摄像头已断开（连续读不到画面）"
+                    break
+                if vision_thread.failed:
+                    game_err = "手势识别已停止（AI 推理连续失败）"
+                    break
+
                 # ---------- 取最新画面 + 最新手势（两者独立，互不阻塞） ----------
                 frame, _seq = capture_thread.latest_display()
                 if frame is None:
+                    # 摄像头打开了却一直没画面（虚拟摄像头/被占用），5 秒后判定异常
+                    if time.time() - t_play_start > 5:
+                        game_err = "摄像头没有画面输出（可能是设备被占用或驱动异常）"
+                        break
                     time.sleep(0.002)
                     continue
                 hands_norm = vision_thread.get_hands()
@@ -578,6 +629,19 @@ def main():
                 capture_thread.stop()
                 capture_thread.join()
                 capture_thread = None
+
+            # ---------- 设备故障：中文提示后退出，不进结算、不留死画面 ----------
+            if game_err:
+                my_log.error(game_err)
+                cv2.imshow('Swift-Fruit-Slice', _render_message(
+                    "设备异常，游戏已停止",
+                    [game_err,
+                     "请检查摄像头/AI 模型是否正常，然后重新启动游戏",
+                     "按任意键退出"],
+                ))
+                cv2.waitKey(0)
+                is_playing = False
+                break
 
             # ---------- 结算 ----------
             if is_playing:

@@ -6,6 +6,15 @@ import time
 """
 游戏主页面的ui选择 界面
 """
+def _read_frame(cap, retries=15):
+    """读一帧；部分设备/驱动刚打开时偶尔返回失败，重试一小会儿再判定真失败"""
+    for _ in range(retries):
+        ok, frame = cap.read()
+        if ok and frame is not None:
+            return frame
+        time.sleep(0.02)
+    return None
+
 def draw_jindu_tiao(frame, area, progress):
     #画那个绿色的加载条 特效
     x, y, w, h = area['x'], area['y'], area['w'], area['h']
@@ -40,8 +49,8 @@ def xuanze_moshi_ui(cap) -> str:
     key_map = {'1': 'single', '2': 'dual', '3': 'pk'}
 
     while True:
-        ok, frame = cap.read()
-        if not ok: 
+        frame = _read_frame(cap)
+        if frame is None:
             return 'single'#读不到图就默认单手吧
             
         frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
@@ -130,8 +139,8 @@ def xuanze_daoguang_ui(cap) -> str:
     labels        = {'dao1': '经典冷冽刀光', 'dao2': '狂暴烈焰刀光'}
 
     while True:
-        ok, frame = cap.read()
-        if not ok: return 'dao1'
+        frame = _read_frame(cap)
+        if frame is None: return 'dao1'
         
         frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
         if config.SETTINGS["camera"].get("mirror", True):
@@ -217,8 +226,8 @@ def jiesuan_ui(cap, game_obj) -> str:
     wait_s = 2.0  #刚死的时候不能马上点 防误触
     
     while True:
-        ok, frame = cap.read()
-        if not ok: break
+        frame = _read_frame(cap)
+        if frame is None: break
         
         frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
         if config.SETTINGS["camera"].get("mirror", True):

@@ -501,7 +501,11 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
 
     def _bofang_yinxiao(self, key): # 播放音效的辅助函数
         if config.HAS_SOUND and key in config.SOUND_EFFECTS:
-            config.SOUND_EFFECTS[key].play()
+            try:
+                config.SOUND_EFFECTS[key].play()
+            except Exception:
+                # 音频设备中途被拔掉/切换时不能让游戏崩溃
+                pass
 
     def update(self, trail_list): # 这个update专门负责处理刀光轨迹和物体的碰撞
         if self.game_over: return

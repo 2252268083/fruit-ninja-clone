@@ -83,8 +83,24 @@ SETTINGS = duqu_peizhi()
 
 try:
     import pygame
-    pygame.mixer.init()
-    HAS_SOUND = True
+    try:
+        pygame.mixer.init()
+        HAS_SOUND = True
+    except Exception as e:
+        # 常见原因：没有扬声器/耳机、默认音频设备被拔出（蓝牙耳机断开、HDMI 无输出）
+        my_log.warning(f"音频设备初始化失败：{e}")
+        try:
+            pygame.mixer.quit()
+        except Exception:
+            pass
+        # 退化到 dummy 声卡：仍然可以加载音效，只是没有声音，游戏照常运行
+        os.environ["SDL_AUDIODRIVER"] = "dummy"
+        try:
+            pygame.mixer.init()
+            my_log.warning("已切换为静音模式（dummy 音频驱动），插上音频设备后重启即可恢复声音")
+        except Exception as e2:
+            my_log.error(f"静音模式也初始化失败，游戏将无声运行：{e2}")
+        HAS_SOUND = False
 except ImportError:
     HAS_SOUND = False
     # my_log.warning("没装pygame，没声音，环境pip install pygame") # 
