@@ -109,6 +109,19 @@ def _render_message(title, lines, color=(255, 90, 90)):
                fill=(220, 225, 235) if i == 0 else (150, 160, 180), anchor="mm")
     return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
 
+def _window_closed():
+    """用户点了游戏窗口右上角的 × 时返回 True（连续两次确认，避免窗口重建瞬间误判）"""
+    def _visible():
+        try:
+            return cv2.getWindowProperty('Swift-Fruit-Slice', cv2.WND_PROP_VISIBLE)
+        except cv2.error:
+            return -1
+
+    if _visible() >= 1:
+        return False
+    time.sleep(0.1)
+    return _visible() < 1
+
 def _open_camera(idx):
     # 打开摄像头：Windows 优先 DSHOW 后端，防止卡死5-10秒
     if os.name == 'nt':
@@ -175,7 +188,9 @@ class CaptureThread(threading.Thread):
             display = frame
             if (frame.shape[1], frame.shape[0]) != (self.disp_w, self.disp_h):
                 display = cv2.resize(frame, (self.disp_w, self.disp_h))
-            small = cv2.resize(frame, (self.infer_w, self.infer_h))
+            # 推理图按原始宽高比缩放：1280x720 压成 320x240 会把手压扁，关键点精度下降
+            infer_h = max(2, int(round(self.infer_w * frame.shape[0] / frame.shape[1])))
+            small = cv2.resize(frame, (self.infer_w, infer_h))
 
             with self._lock:
                 self._display = display
@@ -322,6 +337,7 @@ def main():
             cap = _open_camera(my_cam)
             used_idx = my_cam
             if not cap.isOpened():
+                cap.release()   # 打不开的句柄先释放，避免反复启动泄漏设备
                 for idx in range(4):
                     if idx == my_cam:
                         continue
@@ -331,6 +347,7 @@ def main():
                         used_idx = idx
                         my_log.warning(f"配置的摄像头 index={my_cam} 打不开，已自动改用 index={idx}")
                         break
+                    cap2.release()
             if cap.isOpened():
                 cam_cfg = config.SETTINGS["camera"]
                 want_w = cam_cfg.get("width", 1280)
@@ -386,11 +403,16 @@ def main():
                 break
         cv2.imshow('Swift-Fruit-Slice', _render_loading(step_texts, state['step']))
         cv2.waitKey(30)
+        if _window_closed():   # 加载中点了右上角 ×，直接结束
+            cv2.destroyAllWindows()
+            return
 
     # 加载失败：中文提示错误原因，5秒后退出
     if state['error'] is not None:
         cv2.imshow('Swift-Fruit-Slice', _render_loading(step_texts, state['step'], err=state['error']))
-        cv2.waitKey(5000)
+        for _ in range(50):   # 最多等 5 秒，按任意键或关闭窗口可提前退出
+            if cv2.waitKey(100) != -1 or _window_closed():
+                break
         cv2.destroyAllWindows()
         raise state['error']
 
@@ -415,7 +437,9 @@ def main():
              "请检查摄像头是否被占用 / 未接好",
              "处理完后按任意键退出，再重新打开游戏"],
         ))
-        cv2.waitKey(0)
+        for _ in range(300):   # 最多等 30 秒，按任意键或关闭窗口可提前退出
+            if cv2.waitKey(100) != -1 or _window_closed():
+                break
         cv2.destroyAllWindows()
         return
 
@@ -431,6 +455,8 @@ def main():
 
         # --- 2. 选刀光 ---
         my_dao = xuanze_daoguang_ui(cap)
+        if my_dao == 'quit':
+            break
 
         my_log.info(f"选了模式: {moshi}")
         my_log.info(f"选了刀光: {my_dao}")
@@ -461,7 +487,10 @@ def main():
             vision_thread.start()
             # ====================================
 
-            frame_counter = 0   # 用于隔帧更新物理（保持手感）
+            frame_counter = 0   # 仅用于日志节流
+            step_acc = 0.0      # 固定步长累加器
+            last_step_t = time.time()
+            quit_to_menu = False
             game_err = None     # 设备类故障，退出后给用户中文提示
             t_play_start = time.time()
 
@@ -502,9 +531,10 @@ def main():
                     used = set()
                     assigned = {}
                     unassigned = []
+                    match_dist = max(120, int(config.WINDOW_WIDTH * 0.2))  # 匹配阈值随窗口宽度自适应
 
                     for h in now_hands:
-                        is_left = h['rx'] < 640
+                        is_left = h['rx'] < config.WINDOW_WIDTH // 2  # 不再硬编码 640
                         if moshi == 'pk':
                             half = max(1, max_shou // 2)
                             choose_range = range(0, half) if is_left else range(half, max_shou)
@@ -516,7 +546,7 @@ def main():
                             if last_hands[i] is not None and i not in assigned.values():
                                 dist = math.hypot(h['rx'] - last_hands[i][0],
                                                   h['ry'] - last_hands[i][1])
-                                if dist < 250 and dist < min_dist:
+                                if dist < match_dist and dist < min_dist:
                                     min_dist, best_i = dist, i
 
                         if best_i != -1:
@@ -538,6 +568,7 @@ def main():
                         for i in choose_range:
                             if i not in used:
                                 used.add(i)
+                                pinghua_qis[i].reset()  # 新手接管空闲刀光，避免刀光从上一只手的位置瞬移过来
                                 sx, sy = pinghua_qis[i].smooth(h['rx'], h['ry'])
                                 dao_trails[i].append((sx, sy))
                                 last_hands[i] = (h['rx'], h['ry'])
@@ -570,10 +601,16 @@ def main():
                         if dao_trails[i][j-1] and dao_trails[i][j]:
                             cv2.line(frame, dao_trails[i][j-1], dao_trails[i][j], t_color, 3)
 
-                # ---------- 隔帧更新物理（保持 30fps 手感） ----------
-                if frame_counter % 2 == 0:
+                # ---------- 固定 30Hz 步进：与显示帧率解耦，换电脑难度一致 ----------
+                now_t = time.time()
+                step_acc += min(now_t - last_step_t, 0.1)
+                last_step_t = now_t
+                steps = 0
+                while step_acc >= 1.0 / 30 and steps < 3:
                     game.update(dao_trails)
                     game.check_collisions(dao_trails)
+                    step_acc -= 1.0 / 30
+                    steps += 1
                 frame_counter += 1
 
                 # 每约 300 帧记录一次真实帧率，方便排查"画面卡"
@@ -616,18 +653,34 @@ def main():
                 if key == ord('c'):
                     vision_engine.toggle_environment_mode()
 
+                if _window_closed():   # 点右上角 × 关闭窗口，等价于返回菜单
+                    quit_to_menu = True
+                    break
+
                 if key == ord('q'):
-                    is_playing = False
+                    quit_to_menu = True
                     break
 
             # ---------- 游戏结束，停止视觉线程和采集线程 ----------
             if vision_thread is not None:
                 vision_thread.stop()
-                vision_thread.join()
+                vision_thread.join(timeout=1.5)
+                if vision_thread.is_alive():
+                    my_log.warning("识别线程未在超时内退出（daemon 线程，不阻塞进程）")
                 vision_thread = None
             if capture_thread is not None:
                 capture_thread.stop()
-                capture_thread.join()
+                capture_thread.join(timeout=1.5)
+                if capture_thread.is_alive():
+                    # 驱动阻塞在 read() 里时线程自己退不出来，释放设备句柄促使它返回
+                    my_log.warning("采集线程未在超时内退出，已强制释放摄像头")
+                    try:
+                        cap.release()
+                    except Exception:
+                        pass
+                    capture_thread.join(timeout=1.0)
+                    if game_err is None:
+                        game_err = "摄像头驱动无响应，已强制释放设备"
                 capture_thread = None
 
             # ---------- 设备故障：中文提示后退出，不进结算、不留死画面 ----------
@@ -639,13 +692,25 @@ def main():
                      "请检查摄像头/AI 模型是否正常，然后重新启动游戏",
                      "按任意键退出"],
                 ))
-                cv2.waitKey(0)
+                for _ in range(300):   # 最多等 30 秒，按任意键或关闭窗口可提前退出
+                    if cv2.waitKey(100) != -1 or _window_closed():
+                        break
                 is_playing = False
                 break
+
+            # ---------- 按 Q / 关闭窗口：回到主菜单（不同于结算里的"退出游戏"） ----------
+            if quit_to_menu:
+                my_log.info("玩家按 Q 返回主菜单")
+                continue
 
             # ---------- 结算 ----------
             if is_playing:
                 action = jiesuan_ui(cap, game)
+                if action is None:
+                    # 结算界面读不到画面：按设备故障处理，避免"建局→超时→再建局"死循环
+                    my_log.error("结算界面读不到画面，退出对局")
+                    is_playing = False
+                    break
                 if action == 'menu':
                     break
                 elif action == 'quit':
@@ -658,11 +723,14 @@ def main():
     # ---------- 释放资源 ----------
     if vision_thread is not None:
         vision_thread.stop()
-        vision_thread.join()
+        vision_thread.join(timeout=1.5)
     if capture_thread is not None:
         capture_thread.stop()
-        capture_thread.join()
-    cap.release()
+        capture_thread.join(timeout=1.5)
+    try:
+        cap.release()
+    except Exception:
+        pass
     cv2.destroyAllWindows()
 
 

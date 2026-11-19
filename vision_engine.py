@@ -21,7 +21,7 @@ _mp_ready = False
 _mp_lock = threading.Lock()
 
 hand_det = None   # HandLandmarker 检测器（同样是懒创建）
-_det_lock = threading.Lock()
+_det_lock = threading.RLock()  # 可重入：ensure_init 预热时会再次进入 detect_hands
 
 # 找模型文件：优先 exe 所在目录下的 models/，找不到再试服务器路径
 _TASK_DIRS = [
@@ -213,7 +213,10 @@ def detect_hands(rgb_frame: np.ndarray):
     mp_img = _mp.Image(image_format=_mp.ImageFormat.SRGB, data=rgb_frame)
     ts_ms = get_now_ms()
 
-    res = hand_det.detect_for_video(mp_img, ts_ms)
+    # 持锁推理：防止主线程按 C 切换环境时把检测器关掉，导致这里用到已释放的对象
+    with _det_lock:
+        det = hand_det
+        res = det.detect_for_video(mp_img, ts_ms)
 
     all_lms = []    # 手的坐标
     hand_types = []  # 左手/右手

@@ -55,3 +55,15 @@ class FingerSmoother:
         self.smoothed_pos = None
         self.prev_raw_pos = None
         self.position_buffer.clear()
+
+
+def point_segment_distance(px, py, ax, ay, bx, by):
+    """点 (px,py) 到线段 AB 的最短距离（用于刀光线段切水果判定）"""
+    abx, aby = bx - ax, by - ay
+    ab_len_sq = abx * abx + aby * aby
+    if ab_len_sq == 0:  # A、B 重合，退化成点
+        return math.hypot(px - ax, py - ay)
+    t = ((px - ax) * abx + (py - ay) * aby) / ab_len_sq
+    t = max(0.0, min(1.0, t))
+    cx, cy = ax + t * abx, ay + t * aby
+    return math.hypot(px - cx, py - cy)

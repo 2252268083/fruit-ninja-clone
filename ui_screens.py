@@ -15,6 +15,34 @@ def _read_frame(cap, retries=15):
         time.sleep(0.02)
     return None
 
+
+HOVER_SECONDS = 1.5      # 悬停确认时长（真实时间，不再按帧数）
+HOVER_DECAY = 2.0        # 手指移开后每秒回退的进度秒数
+
+
+def _window_closed():
+    """用户点了窗口右上角 × 时返回 True（连续两次确认，避免误判）"""
+    def _visible():
+        try:
+            return cv2.getWindowProperty('Swift-Fruit-Slice', cv2.WND_PROP_VISIBLE)
+        except cv2.error:
+            return -1
+
+    if _visible() >= 1:
+        return False
+    time.sleep(0.1)
+    return _visible() < 1
+
+
+def _placeholder(text='摄像头暂无画面，正在重试...'):
+    """读帧失败时的占位画面，避免界面直接消失或替你选择"""
+    import numpy as np
+    frame = np.zeros((config.WINDOW_HEIGHT, config.WINDOW_WIDTH, 3), dtype=np.uint8)
+    config.add_cn_text(text, (config.WINDOW_WIDTH // 2 - 260, config.WINDOW_HEIGHT // 2),
+                       font_size=36, color=(200, 200, 200))
+    config.flush_cn_texts(frame)
+    return frame
+
 def draw_jindu_tiao(frame, area, progress):
     #画那个绿色的加载条 特效
     x, y, w, h = area['x'], area['y'], area['w'], area['h']
@@ -36,8 +64,9 @@ def xuanze_moshi_ui(cap) -> str:
         'pk':     {'x': gap*3 + box_w*2,  'y': 240, 'w': box_w, 'h': box_h},
     }
     
-    hover_time = {k: 0 for k in areas}
-    max_hover = 30#停多久算确认 大概30帧
+    hover_time = {k: 0.0 for k in areas}
+    last_t = time.time()
+    fail_since = None
     now_hover = None
     
     #之前手太抖选不中 加个平滑器
@@ -51,8 +80,24 @@ def xuanze_moshi_ui(cap) -> str:
     while True:
         frame = _read_frame(cap)
         if frame is None:
-            return 'single'#读不到图就默认单手吧
-            
+            # 不再替玩家默认选择：显示重试提示，连续 10 秒无画面才退出
+            if fail_since is None:
+                fail_since = time.time()
+            elif time.time() - fail_since > 10:
+                return 'quit'
+            cv2.imshow('Swift-Fruit-Slice', _placeholder())
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27 or _window_closed():
+                return 'quit'
+            if key in (ord('1'), ord('2'), ord('3')):
+                return key_map[chr(key)]
+            continue
+        fail_since = None
+
+        now_t = time.time()
+        dt = now_t - last_t
+        last_t = now_t
+
         frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
         if config.SETTINGS["camera"].get("mirror", True):
             frame = cv2.flip(frame, 1)
@@ -63,13 +108,13 @@ def xuanze_moshi_ui(cap) -> str:
         cv2.addWeighted(zhezhao, 0.55, frame, 0.45, 0, frame)
 
         config.add_cn_text('选择游戏模式', (config.WINDOW_WIDTH//2 - 180, 55),  font_size=60, color=(255, 220, 0))
-        config.add_cn_text('悬停食指 3 秒确认', (config.WINDOW_WIDTH//2 - 160, 140), font_size=34, color=(200, 200, 200))
+        config.add_cn_text(f'悬停食指 {HOVER_SECONDS:g} 秒确认', (config.WINDOW_WIDTH//2 - 160, 140), font_size=34, color=(200, 200, 200))
 
         #画框框
         for k, a in areas.items():
             x, y, w, h = a['x'], a['y'], a['w'], a['h']
             is_hover = (now_hover == k)
-            p = hover_time[k] / max_hover if is_hover else 0
+            p = min(1.0, hover_time[k] / HOVER_SECONDS) if is_hover else 0
             b_color = (0, 255, 0) if is_hover else (160, 160, 160)
             t_thick = 5 if is_hover else 2
             
@@ -107,21 +152,22 @@ def xuanze_moshi_ui(cap) -> str:
             for k, a in areas.items():
                 if a['x'] <= sx <= a['x'] + a['w'] and a['y'] <= sy <= a['y'] + a['h']:
                     now_hover = k
-                    hover_time[k] += 1
-                    if hover_time[k] >= max_hover:
+                    hover_time[k] += dt
+                    if hover_time[k] >= HOVER_SECONDS:
                         config.flush_cn_texts(frame)
                         return k
                 else:
-                    hover_time[k] = max(0, hover_time[k] - 2)
+                    hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
         else:
             my_smoother.reset()
             for k in hover_time: 
-                hover_time[k] = max(0, hover_time[k] - 2)
+                hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
 
         config.flush_cn_texts(frame)
         cv2.imshow('Swift-Fruit-Slice', frame)
         
         key = cv2.waitKey(1) & 0xFF
+        if _window_closed(): return 'quit'
         if key == 27: return 'quit'
         if chr(key) in key_map: return key_map[chr(key)]
 
@@ -132,16 +178,34 @@ def xuanze_daoguang_ui(cap) -> str:
         'dao1': {'x': 200, 'y': 280, 'w': 300, 'h': 300},
         'dao2': {'x': 780, 'y': 280, 'w': 300, 'h': 300},
     }
-    hover_time   = {'dao1': 0, 'dao2': 0}
-    max_hover     = 30
+    hover_time   = {'dao1': 0.0, 'dao2': 0.0}
+    last_t = time.time()
+    fail_since = None
     now_hover = None
     my_smoother      = math_utils.FingerSmoother(method='ewma', alpha=0.4, adaptive=True)
     labels        = {'dao1': '经典冷冽刀光', 'dao2': '狂暴烈焰刀光'}
 
     while True:
         frame = _read_frame(cap)
-        if frame is None: return 'dao1'
-        
+        if frame is None:
+            # 读不到画面时不替玩家默认选刀光
+            if fail_since is None:
+                fail_since = time.time()
+            elif time.time() - fail_since > 10:
+                return 'quit'
+            cv2.imshow('Swift-Fruit-Slice', _placeholder())
+            key = cv2.waitKey(1) & 0xFF
+            if key == 27 or key == ord('q') or _window_closed():
+                return 'quit'
+            if key == ord('1'): return 'dao1'
+            if key == ord('2'): return 'dao2'
+            continue
+        fail_since = None
+
+        now_t = time.time()
+        dt = now_t - last_t
+        last_t = now_t
+
         frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
         if config.SETTINGS["camera"].get("mirror", True):
             frame = cv2.flip(frame, 1)
@@ -151,12 +215,12 @@ def xuanze_daoguang_ui(cap) -> str:
         cv2.addWeighted(zhezhao, 0.55, frame, 0.45, 0, frame)
 
         config.add_cn_text('选择刀光样式', (config.WINDOW_WIDTH//2 - 160, 60), font_size=60, color=(0, 220, 255))
-        config.add_cn_text('悬停食指 3 秒确认选择', (config.WINDOW_WIDTH//2 - 200, 148), font_size=34, color=(200, 200, 200))
+        config.add_cn_text(f'悬停食指 {HOVER_SECONDS:g} 秒确认选择', (config.WINDOW_WIDTH//2 - 200, 148), font_size=34, color=(200, 200, 200))
 
         for k, a in areas.items():
             x, y, w, h = a['x'], a['y'], a['w'], a['h']
             is_hover = (now_hover == k)
-            p = hover_time[k] / max_hover if is_hover else 0
+            p = min(1.0, hover_time[k] / HOVER_SECONDS) if is_hover else 0
             b_color   = (0, 255, 0) if is_hover else (200, 200, 200)
             t_thick    = 5 if is_hover else 2
             
@@ -194,22 +258,24 @@ def xuanze_daoguang_ui(cap) -> str:
             for k, a in areas.items():
                 if a['x'] <= sx <= a['x'] + a['w'] and a['y'] <= sy <= a['y'] + a['h']:
                     now_hover = k
-                    hover_time[k] += 1
-                    if hover_time[k] >= max_hover:
+                    hover_time[k] += dt
+                    if hover_time[k] >= HOVER_SECONDS:
                         config.flush_cn_texts(frame)
                         return k
                 else:
-                    hover_time[k] = max(0, hover_time[k] - 2)
+                    hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
         else:
             my_smoother.reset()
             for k in hover_time: 
-                hover_time[k] = max(0, hover_time[k] - 2)
+                hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
 
         config.flush_cn_texts(frame)
         cv2.imshow('Swift-Fruit-Slice', frame)
         key = cv2.waitKey(1) & 0xFF
-        if key == ord('1') or key == ord('q'): return 'dao1'
+        if _window_closed(): return 'quit'
+        if key == ord('1'): return 'dao1'
         elif key == ord('2'): return 'dao2'
+        elif key == ord('q') or key == 27: return 'quit'
 
 
 def jiesuan_ui(cap, game_obj) -> str:
@@ -218,8 +284,9 @@ def jiesuan_ui(cap, game_obj) -> str:
         'restart': {'x': 300, 'y': 380, 'w': 300, 'h': 200},
         'menu':    {'x': 680, 'y': 380, 'w': 300, 'h': 200}
     }
-    hover_time = {'restart': 0, 'menu': 0}
-    max_hover = 30
+    hover_time = {'restart': 0.0, 'menu': 0.0}
+    last_t = time.time()
+    fail_since = None
     my_smoother = math_utils.FingerSmoother(method='ewma', alpha=0.4, adaptive=True)
     
     start_t = time.time()
@@ -227,8 +294,23 @@ def jiesuan_ui(cap, game_obj) -> str:
     
     while True:
         frame = _read_frame(cap)
-        if frame is None: break
-        
+        if frame is None:
+            # 读不到画面超过 5 秒就返回 None，由 main 按设备故障退出，避免无限自动重开
+            if fail_since is None:
+                fail_since = time.time()
+            elif time.time() - fail_since > 5:
+                return None
+            cv2.imshow('Swift-Fruit-Slice', _placeholder('结算界面取不到画面，正在重试...'))
+            key = cv2.waitKey(1) & 0xFF
+            if _window_closed() or key == ord('q') or key == 27:
+                return None
+            continue
+        fail_since = None
+
+        now_t = time.time()
+        dt = now_t - last_t
+        last_t = now_t
+
         frame = cv2.resize(frame, (config.WINDOW_WIDTH, config.WINDOW_HEIGHT))
         if config.SETTINGS["camera"].get("mirror", True):
             frame = cv2.flip(frame, 1)
@@ -268,7 +350,7 @@ def jiesuan_ui(cap, game_obj) -> str:
         if time.time() - start_t > wait_s:
             for k, a in areas.items():
                 x, y, w, h = a['x'], a['y'], a['w'], a['h']
-                p = hover_time[k] / max_hover
+                p = min(1.0, hover_time[k] / HOVER_SECONDS)
                 b_color = (0, 255, 0) if p > 0 else (100, 100, 100)
                 cv2.rectangle(frame, (x, y), (x + w, y + h), b_color, 3)
                 
@@ -287,16 +369,16 @@ def jiesuan_ui(cap, game_obj) -> str:
                 
                 for k, a in areas.items():
                     if a['x'] <= sx <= a['x'] + a['w'] and a['y'] <= sy <= a['y'] + a['h']:
-                        hover_time[k] += 1
-                        if hover_time[k] >= max_hover: 
+                        hover_time[k] += dt
+                        if hover_time[k] >= HOVER_SECONDS:
                             config.flush_cn_texts(frame)
                             return k
                     else:
-                        hover_time[k] = max(0, hover_time[k] - 2)
+                        hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
             else:
                 my_smoother.reset()
                 for k in hover_time:
-                    hover_time[k] = max(0, hover_time[k] - 2)
+                    hover_time[k] = max(0.0, hover_time[k] - HOVER_DECAY * dt)
         else:
             shengyu = int(wait_s - (time.time() - start_t)) + 1
             config.add_cn_text(f'即将显示选项... {shengyu}', (config.WINDOW_WIDTH//2 - 130, 450), 30, (150, 150, 150))
@@ -305,6 +387,9 @@ def jiesuan_ui(cap, game_obj) -> str:
         cv2.imshow('Swift-Fruit-Slice', frame)
 
         key = cv2.waitKey(1) & 0xFF
-        if key == ord('r'): return 'restart'
-        if key == ord('m'): return 'menu'
-        if key == ord('q') or key == 27: return 'quit'
+        if _window_closed(): return None
+        # 快捷键同样要过 2 秒防误触，避免手还在挥就误触重开
+        if time.time() - start_t > wait_s:
+            if key == ord('r'): return 'restart'
+            if key == ord('m'): return 'menu'
+            if key == ord('q') or key == 27: return 'quit'

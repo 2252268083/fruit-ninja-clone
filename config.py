@@ -211,6 +211,8 @@ def load_dynamic_ads(base_dir, theme_folder="ads", scale=0.7, custom_scales=None
 
 SUIGUO_ZHUTI = SETTINGS["game"].get("fruit_theme", "default")
 
+DEFAULT_FRUIT_TYPES = ['banana', 'boluo', 'iceBanana', 'Mango', 'mugua', 'peach', 'pear', 'pineapple', 'strawberry', 'b1']
+
 if SUIGUO_ZHUTI == "ads":
     my_log.info(f"读取到的ads配置: {SETTINGS.get('ads', {})}") # 记录广告配置
     FRUIT_IMAGES = load_dynamic_ads(
@@ -223,8 +225,14 @@ if SUIGUO_ZHUTI == "ads":
     print("广告素材加载成功：", FRUIT_IMAGES.keys())
 
     FRUIT_TYPES = list(FRUIT_IMAGES.keys())
+    if not FRUIT_TYPES:
+        # 广告目录为空时不能让 FRUIT_TYPES 变成空列表，否则 random.choice 直接崩溃
+        my_log.warning("广告素材目录为空，已回退到默认水果主题")
+        SUIGUO_ZHUTI = "default"
+        FRUIT_TYPES = DEFAULT_FRUIT_TYPES
 else:
-    FRUIT_TYPES = ['banana', 'boluo', 'iceBanana', 'Mango', 'mugua', 'peach', 'pear', 'pineapple', 'strawberry', 'b1']
+    FRUIT_IMAGES = {}
+    FRUIT_TYPES = DEFAULT_FRUIT_TYPES
 
 
 def load_shuiguo_imgs():
@@ -252,7 +260,7 @@ def load_shuiguo_imgs():
 
     return imgs
 
-if SUIGUO_ZHUTI != "ads":
+if not FRUIT_IMAGES:
     FRUIT_IMAGES = load_shuiguo_imgs()
 
 def load_duo_shuiguo_imgs():

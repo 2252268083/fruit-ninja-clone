@@ -7,6 +7,20 @@ import math
 import random
 import time
 import config
+import math_utils
+
+
+def _trail_hits_circle(trail, x, y, radius):
+    """刀光轨迹是否切中圆：按线段判定，避免快速挥动时两点都在圆外而漏切"""
+    pts = [p for p in list(trail)[-15:] if p]
+    if not pts:
+        return False
+    if len(pts) == 1:
+        return math.hypot(pts[0][0] - x, pts[0][1] - y) < radius
+    for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
+        if math_utils.point_segment_distance(x, y, x1, y1, x2, y2) < radius:
+            return True
+    return False
 
 class my_wanjia:
     # 玩家类，存分数
@@ -97,12 +111,7 @@ class my_shuiguo: # 定义单个水果的属性和行为
 
     def check_hit(self, trail): # 检查是否被刀光轨迹切中
         if self.is_cut or len(trail) < 2: return False # 如果已切开或轨迹点太少，则不判断
-
-        # TODO: 算点到圆心的距离，偶尔会漏切
-        for pt in list(trail)[-15:]: # 取最新的15个轨迹点进行检测
-            if pt and math.hypot(pt[0] - self.x, pt[1] - self.y) < self.radius * 0.85: # 勾股定理算距离
-                return True # 如果距离小于半径，则认为切中
-        return False
+        return _trail_hits_circle(trail, self.x, self.y, self.radius * 0.85)
 
 # (多切块水果和炸弹逻辑差不多，照着上面改一下名字)
 class my_duo_shuiguo: # 定义能切成多块的水果（如西瓜）
@@ -177,9 +186,7 @@ class my_duo_shuiguo: # 定义能切成多块的水果（如西瓜）
 
     def check_hit(self, trail): # 碰撞检测
         if self.is_cut or len(trail) < 2: return False
-        for pt in list(trail)[-15:]:
-            if pt and math.hypot(pt[0] - self.x, pt[1] - self.y) < self.radius * 0.85: return True
-        return False
+        return _trail_hits_circle(trail, self.x, self.y, self.radius * 0.85)
 
 
 class my_zhadan: # 定义炸弹的属性和行为
@@ -239,9 +246,7 @@ class my_zhadan: # 定义炸弹的属性和行为
 
     def check_hit(self, trail): # 碰撞检测
         if self.is_exploded or len(trail) < 2: return False
-        for pt in list(trail)[-15:]:
-            if pt and math.hypot(pt[0] - self.x, pt[1] - self.y) < self.radius * 0.85: return True
-        return False
+        return _trail_hits_circle(trail, self.x, self.y, self.radius * 0.85)
 
 
 class Effect_Lianji: # 定义连击（Combo）特效
@@ -383,7 +388,8 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
         # 双人PK模式专用变量
         self.p1 = my_wanjia() # 玩家1
         self.p2 = my_wanjia() # 玩家2
-        self.start_time = time.time() # PK模式开始时间
+        self.max_shou = config.SETTINGS["ai"].get("max_hands", 4) # 与 main1 的刀光数量保持一致
+        self.start_time = None # PK模式开始时间：首帧游戏逻辑开始时才计时，避免加载/预热时间被算进去
         self.total_time = config.SETTINGS["game"].get("total_time", 30)
         self.winner = '' # 获胜者
         
@@ -407,6 +413,8 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
 
 
     def get_time_left(self) -> float: # 获取PK模式的剩余时间
+        if self.start_time is None: # 还没开始计时，先给满时长
+            return float(self.total_time)
         return max(0.0, self.total_time - (time.time() - self.start_time))
 
     def suiji_shengcheng(self): # 随机生成一个游戏物体（水果或炸弹）
@@ -438,6 +446,8 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
         if self.game_over: return # 游戏结束了就什么都不做
 
         # --- PK模式的胜负判断 ---
+        if self.mode == 'pk' and self.start_time is None:
+            self.start_time = time.time() # 首帧游戏逻辑才真正开始计时
         if self.mode == 'pk' and self.get_time_left() <= 0:
             self.game_over = True
             if self.p1.score > self.p2.score:
@@ -520,15 +530,16 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
                     f.cut() # 执行水果的切开逻辑
                     cut_something = True
                     self._bofang_yinxiao('slice') # 播放切开音效
-                    if self.mode == 'pk': # PK模式下，根据刀光索引给对应玩家加分
-                        if idx == 0: self.p1.score += 1
+                    if self.mode == 'pk': # PK模式下，根据刀光所属半区给对应玩家加分
+                        if self._player(idx) == 0: self.p1.score += 1
                         else: self.p2.score += 1
                     else: # 普通模式
                         self.score += 1
                         self.combo += 1
                     self.slash_fx.append(Effect_Daoguang(f.x, f.y, random.uniform(0, 360))) # 添加一个刀光特效
-                    if config.JUICE_IMAGES.get('juice1') is not None:
-                        self.juice_fx.append(Effect_Guozhi(f.x, f.y, config.JUICE_IMAGES['juice1']))
+                    juice_key = config.get_juice_color(f.fruit_type) # 按水果类型取对应果汁
+                    if juice_key:
+                        self.juice_fx.append(Effect_Guozhi(f.x, f.y, config.JUICE_IMAGES[juice_key]))
 
             # --- 检测与多块水果的碰撞 ---
             for mf in self.multi_fruits:
@@ -537,23 +548,27 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
                     cut_something = True
                     self._bofang_yinxiao('slice')
                     if self.mode == 'pk':
-                        if idx == 0: self.p1.score += 2
+                        if self._player(idx) == 0: self.p1.score += 2
                         else: self.p2.score += 2
                     else:
                         self.score += 2
                         self.combo += 1
                     self.slash_fx.append(Effect_Daoguang(mf.x, mf.y, random.uniform(0, 360)))
-                    if config.JUICE_IMAGES.get('juice2') is not None:
-                        self.juice_fx.append(Effect_Guozhi(mf.x, mf.y, config.JUICE_IMAGES['juice2']))
+                    juice_key = config.get_juice_color(mf.fruit_type)
+                    if juice_key:
+                        self.juice_fx.append(Effect_Guozhi(mf.x, mf.y, config.JUICE_IMAGES[juice_key]))
 
             # --- 检测与炸弹的碰撞 ---
             for b in self.bombs:
                 if not b.is_exploded and b.check_hit(trail):
                     b.explode() # 炸弹爆炸
                     self._bofang_yinxiao('explosion') # 播放爆炸音效
-                    if self.mode == 'pk': # PK模式下，切到炸弹给对方加分（或者不扣分）
-                        if idx == 0: self.p1.score = max(0, self.p1.score - 4)
-                        else: self.p2.score = max(0, self.p2.score - 4)
+                    if self.mode == 'pk': # PK为计分制：普通炸弹扣3分，致命炸弹扣5分，不直接结束对局
+                        penalty = 5 if b.bomb_type == 'deadly' else 3
+                        if self._player(idx) == 0:
+                            self.p1.score = max(0, self.p1.score - penalty)
+                        else:
+                            self.p2.score = max(0, self.p2.score - penalty)
                     else: # 普通模式
                         self.combo = 0 # 连击清零
                         if b.bomb_type == 'deadly': # 如果是致命炸弹
@@ -585,6 +600,8 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
         for fx in self.combo_fx: fx.draw(frame)
 
         half = config.WINDOW_WIDTH // 2
+        # 游戏中真实可用的快捷键提示（R 在对局中无效，不再误导）
+        config.add_cn_text('按 Q 返回菜单', (half - 90, config.WINDOW_HEIGHT - 40), font_size=24, color=(180, 180, 180))
         # --- 绘制UI元素 ---
         if self.mode == 'pk': # PK模式的UI
             config.add_cn_text(f"玩家一 得分: {self.p1.score}", (40, 20), font_size=32, color=(255, 150, 0))
@@ -607,7 +624,6 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
                     config.add_cn_text('🏆  玩家二获胜！', (half - 200, cy - 130), font_size=54, color=(100, 200, 255))
                 else:
                     config.add_cn_text('🤝  双方平局！', (half - 150, cy - 130), font_size=54, color=(240, 240, 240))
-                config.add_cn_text('按 R 键重新对战 | 按 Q 键退出到菜单', (half - 260, cy + 30), font_size=28, color=(200, 200, 200))
         else: # 普通模式的UI
             config.add_cn_text(f"得分: {self.score}", (40, 20), font_size=32, color=(0, 255, 0))
             config.add_cn_text(f"连击: {self.combo}", (220, 20), font_size=32, color=(255, 215, 0))
@@ -622,15 +638,17 @@ class Game: # 游戏主控制类，管理整个游戏的逻辑、状态和实体
                 config.add_cn_text('Game Over', (half - 160, cy - 140), font_size=64, color=(0, 0, 255))
                 config.add_cn_text(self.game_over_reason, (half - 180, cy - 40), font_size=30, color=(255, 255, 255))
                 config.add_cn_text(f'最终总得分: {self.score}', (half - 130, cy + 30), font_size=34, color=(0, 255, 255))
-                config.add_cn_text('按 R 重新开始 | 按 Q 退出到菜单', (half - 230, cy + 110), font_size=26, color=(190, 190, 190))
     
     
     def get_calories(self):
         return self.total_distance * 0.0005
     
+    def _player(self, hand_idx): # 刀光索引属于哪个玩家：0=玩家1，1=玩家2
+        return 0 if hand_idx < (self.max_shou // 2) else 1
+
     def add_distance (self,dist,hand_idx,max_shou):
         if self.mode == 'pk':
-            if hand_idx < (max_shou // 2):
+            if self._player(hand_idx) == 0:
                 self.p1.distance += dist
             else:
                 self.p2.distance +=dist
